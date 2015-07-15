@@ -1,0 +1,72 @@
+os_id	version	region	virtualization_type	volume_type	ami_id	description	updated
+amzn	2015.03	ap-northeast-1	hvm	ssd	ami-cbf90ecb	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	ap-southeast-1	hvm	ssd	ami-68d8e93a	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	ap-southeast-2	hvm	ssd	ami-fd9cecc7	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	eu-central-1	hvm	ssd	ami-a8221fb5	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	eu-west-1	hvm	ssd	ami-a10897d6	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	sa-east-1	hvm	ssd	ami-b52890a8	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	us-east-1	hvm	ssd	ami-1ecae776	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	us-west-1	hvm	ssd	ami-d114f295	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	us-west-2	hvm	ssd	ami-e7527ed7	"Amazon Linux AMI 2015.03 (HVM), SSD Volume Type"	2015-07-10
+amzn	2015.03	us-east-1	pv		ami-1ccae774	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	us-west-2	pv		ami-ff527ecf	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	us-west-1	pv		ami-d514f291	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	eu-central-1	pv		ami-ac221fb1	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	eu-west-1	pv		ami-bf0897c8	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	ap-southeast-1	pv		ami-acd9e8fe	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	ap-southeast-2	pv		ami-ff9cecc5	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	ap-northeast-1	pv		ami-27f90e27	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+amzn	2015.03	sa-east-1	pv		ami-bb2890a6	"Amazon Linux AMI 2015.03 (PV)"	2015-07-10
+centos	7	us-east-1	hvm		ami-96a818fe	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	us-west-1	hvm		ami-6bcfc423	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	us-west-2	hvm		ami-c7d092f7	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	eu-central-1	hvm		ami-7cc4f661	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	eu-west-1	hvm		ami-e4ff5c93	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	ap-southeast-1	hvm		ami-aea582fc	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	ap-southeast-2	hvm		ami-bd523087	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	ap-northeast-1	hvm		ami-89634988	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+centos	7	sa-east-1	hvm		ami-bf9520a2	"CentOS 7 x86_64 with Updates HVM"	2015-07-10
+debian	8.1	ap-northeast-1	hvm		ami-fe54f3fe	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	ap-southeast-1	hvm		ami-60989c32	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	ap-southeast-2	hvm		ami-07e9993d	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	eu-central-1	hvm		ami-b092aaad	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	eu-west-1	hvm		ami-0ed89d79	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	sa-east-1	hvm		ami-a5bd3fb8	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	us-east-1	hvm		ami-8b9a63e0	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	us-west-1	hvm		ami-a5d621e1	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+debian	8.1	us-west-2	hvm		ami-3d56520d	"Debian GNU/Linux 8 (Jessie)"	2015-07-10
+rhel	7.1	ap-northeast-1	hvm	ssd	ami-b1b458b1	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	ap-southeast-1	hvm	ssd	ami-dc1c2b8e	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	ap-southeast-2	hvm	ssd	ami-d3daace9	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	eu-west-1	hvm	ssd	ami-25158352	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	sa-east-1	hvm	ssd	ami-09e25b14	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	us-east-1	hvm	ssd	ami-12663b7a	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	us-west-1	hvm	ssd	ami-a540a5e1	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+rhel	7.1	us-west-2	hvm	ssd	ami-4dbf9e7d	"Red Hat Enterprise Linux 7.1 (HVM), SSD Volume Type"	2015-07-10
+suse	12	ap-northeast-1	hvm	ssd	ami-d54a79d4	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	ap-southeast-1	hvm	ssd	ami-84b392d6	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	ap-southeast-2	hvm	ssd	ami-b90e6283	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	eu-west-1	hvm	ssd	ami-e801af9f	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	eu-central-1	hvm	ssd	ami-a22610bf	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	sa-east-1	hvm	ssd	ami-f102b6ec	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	us-east-1	hvm	ssd	ami-aeb532c6	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	us-west-1	hvm	ssd	ami-b95b4ffc	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	us-west-2	hvm	ssd	ami-d7450be7	"SUSE Linux Enterprise Server 12 (HVM), SSD Volume Type"	2015-07-10
+suse	12	ap-northeast-1	pv	ssd	ami-df4b78de	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	ap-southeast-1	pv	ssd	ami-dcb3928e	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	ap-southeast-2	pv	ssd	ami-590e6263	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	eu-west-1	pv	ssd	ami-1804aa6f	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	sa-east-1	pv	ssd	ami-c102b6dc	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	us-east-1	pv	ssd	ami-48b63120	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	us-west-1	pv	ssd	ami-cd5b4f88	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+suse	12	us-west-2	pv	ssd	ami-c5440af5	"SUSE Linux Enterprise Server 12 (PV), SSD Volume Type"	2015-07-10
+ubuntu	14.04	us-west-2	hvm	ssd	ami-6989a659	"Ubuntu Server 14.04 LTS (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	ap-northeast-1	hvm	ssd	ami-6a71df6a	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	ap-southeast-1	hvm	ssd	ami-98c4c4ca	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	ap-southeast-1	hvm	ssd	ami-f1f9bdcb	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	eu-central-1	hvm	ssd	ami-383b0125	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	eu-west-1	hvm	ssd	ami-58672a2f	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	sa-east-1	hvm	ssd	ami-07870b1a	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	us-east-1	hvm	ssd	ami-97eb22fc	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	us-west-1	hvm	ssd	ami-a3b744e7	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
+ubuntu	15.04	us-west-2	hvm	ssd	ami-d3c5c5e3	"Ubuntu Server 15.04 (HVM), SSD Volume Type"	2015-07-10
