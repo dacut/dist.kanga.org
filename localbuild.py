@@ -118,7 +118,7 @@ class Package(object):
         return results
 
 def build_all():
-    for package in package.get_packages():
+    for package in Package.get_packages():
         package.build()
 
 if __name__ == "__main__":
