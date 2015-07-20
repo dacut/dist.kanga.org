@@ -15,7 +15,8 @@ from sys import argv, exit, stderr, stdout
 class Builder(object):
     def __init__(self, subnet_id=None, key_name=None, security_groups=[],
                  os_ids=[], instance_type='t2.micro', profile=None,
-                 virtualization_type='hvm', root_size=64, region='us-west-2'):
+                 instance_profile_name=None, virtualization_type='hvm',
+                 root_size=64, region='us-west-2'):
         super(Builder, self).__init__()
         self.subnet_id = subnet_id
         self.key_name = key_name
@@ -23,6 +24,7 @@ class Builder(object):
         self.os_ids = os_ids
         self.instance_type = instance_type
         self.profile = profile
+        self.instance_profile_name = instance_profile_name
         self.virtualization_type = virtualization_type
         self.root_size = root_size
         self.region = region
@@ -71,6 +73,7 @@ class Builder(object):
         reservation = self.ec2.run_instances(
             ami_id, key_name=self.key_name, user_data=self.startup,
             instance_type=self.instance_type, block_device_map=bdm,
+            instance_profile_name=self.instance_profile_name,
             network_interfaces=nic)
 
         self.log.info("Launched %s %s with instance id %s", os_id, version,
@@ -93,6 +96,11 @@ class Builder(object):
         elif opt in ("-k", "--key-name", "--keyname", "--key", "key-name",
                      "key"):
             self.key_name = value
+        elif opt in ("-i", "--instance-profile-name", "--instance-profile",
+                     "--instnaceprofilename", "--instanceprofile",
+                     "instance-profile-name", "instance-profile",
+                     "instanceprofile"):
+            self.instance_profile_name = value
         elif opt in ("-o", "--os", "os"):
             self.os_ids.extend(value.split(","))
         elif opt in ("-p", "--profile", "profile"):
@@ -127,9 +135,11 @@ def main(args):
     builder = Builder()
 
     try:
-        opts, args = getopt(args, "c:g:hk:o:p:r:s:V:",
+        opts, args = getopt(args, "c:g:hi:k:o:p:r:s:V:",
                             ["config=", "security-group=", "security-groups=",
                              "securitygroup=", "securitygroups=", "help",
+                             "instance-profile-name=", "instance-profile=",
+                             "instanceprofilename=", "instanceprofile-name=",
                              "key-name=", "keyname=", "key=", "os=",
                              "profile=", "region=", "subnet-id=", "subnet=",
                              "volume-size="])
@@ -154,10 +164,13 @@ def main(args):
                 usage()
                 return 1
 
-    print(builder)
+    if len(builder.os_ids) == 0:
+        print("No OS ids specified for building.", file=stderr)
+        return 1
+
     builder.build_all()
 
-    return
+    return 0
 
 def usage(fd=stderr):
     fd.write("""\
@@ -175,6 +188,9 @@ Options:
 
     -h | --help
         Show this usage information.
+
+    -i <instance-profile-name> | --instance-profile=<instance-profile-name>
+        Launch EC2 instances with the specified instance profile.
 
     -k <key-name> | --key-name=<key-name>
         Use the specified keypair to launch the instance.
@@ -202,4 +218,5 @@ if __name__ == "__main__":
         stream=stderr, level=logging.DEBUG,
         format=("%(asctime)s %(filename)s %(lineno)d [%(levelname)s]: "
                 "%(message)s"))
+    logging.getLogger("boto").setLevel(logging.INFO)
     exit(main(argv[1:]))
