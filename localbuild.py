@@ -72,7 +72,7 @@ class Package(object):
         self.invoke("rpmbuild", "-ba", spec_file)
 
     def invoke(self, *cmd):
-        syslog(LOG_INFO, "Invoking %r" % cmd)
+        syslog(LOG_INFO, "Invoking %r" % (cmd,))
         proc = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
         out, err = proc.communicate()
 
