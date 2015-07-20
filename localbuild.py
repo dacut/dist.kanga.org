@@ -4,6 +4,7 @@ from csv import reader as csv_reader
 from os import makedirs
 from os.path import basename, dirname, exists
 from re import compile as re_compile
+from subprocess import PIPE, Popen
 from syslog import (
     LOG_ERR, LOG_INFO, LOG_LOCAL1, LOG_WARNING, openlog, syslog)
 from urllib2 import urlopen
