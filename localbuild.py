@@ -5,6 +5,7 @@ from os import makedirs
 from os.path import basename, dirname, exists
 from re import compile as re_compile
 from syslog import LOG_LOCAL1, openlog, syslog
+from urllib2 import urlopen
 
 openlog("localbuild.py", 0, LOG_LOCAL1)
 
