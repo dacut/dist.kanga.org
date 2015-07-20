@@ -8,7 +8,7 @@ from syslog import LOG_LOCAL1, openlog, syslog
 
 openlog("localbuild.py", 0, LOG_LOCAL1)
 
-id_regex = re_compile(r'^\s*ID=("[^"]*")|([^ ]*)\s*$')
+id_regex = re_compile(r'^\s*ID=(?:("[^"]*")|([^ ]*))\s*$')
 def get_linux_dist():
     if exists("/etc/os-release"):
         with open("/etc/os-release", "r") as fd:
@@ -16,7 +16,7 @@ def get_linux_dist():
                 m = id_regex.match(line)
                 if m:
                     if m.group(1):
-                        return m.group(1)
+                        return m.group(1)[1:-1]
                     else:
                         return m.group(2)
     else:
