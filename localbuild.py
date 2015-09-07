@@ -192,6 +192,9 @@ class Package(object):
         for rpm_candidate in rpm_candidates:
             assert rpm_candidate.name.startswith(rpm_prefix)
             suffix = rpm_candidate.name[len(rpm_prefix):]
+            print("suffix is %r, rpm_prefix is %r, rpm_candidate is %r" %
+                  (suffix, rpm_prefix, rpm_candidate.name))
+            
             build = int(suffix.split(".", 1)[0])
 
             if self.last_build is None or self.last_build < build:
