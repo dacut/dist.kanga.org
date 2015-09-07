@@ -1,6 +1,6 @@
 Name:           nbd
 Version:        3.11
-Release:        0%{dist}
+Release:        %{kanga_build}%{dist}
 Summary:        Network Block Device user-space tools (TCP version)
 
 Group:          Applications/System
@@ -9,7 +9,7 @@ URL:            http://nbd.sourceforge.net/
 Source0:        https://dist.kanga.org/packages/nbd-3.11.tar.gz
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-BuildRequires:  glib2-devel autoconf automake libtool
+BuildRequires:  glib2-devel autoconf automake docbook-utils libtool
 Requires:       glib2
 
 %description
