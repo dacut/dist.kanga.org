@@ -260,4 +260,4 @@ def main():
         package.upload()
 
 if __name__ == "__main__":
-    build_all()
+    main()
