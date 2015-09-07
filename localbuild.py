@@ -139,6 +139,10 @@ class Package(object):
             dest = "SOURCES/" + basename(source)
             self.download(source, dest)
             source_id += 1
+        
+        # Install any necessary package prerequisites
+        pkg_list = spec_data.get("BuildRequires", "").strip().split()
+        self.invoke("sudo", "yum", "-y", "install", *pkg_list)
 
         self.invoke("rpmbuild", "-ba", spec_file_out)
 
