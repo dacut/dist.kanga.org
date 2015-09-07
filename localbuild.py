@@ -2,7 +2,7 @@
 from __future__ import absolute_import, print_function
 import boto.s3
 from csv import reader as csv_reader
-from os import makedirs
+from os import getenv, makedirs
 from os.path import basename, dirname, exists
 from re import compile as re_compile
 from subprocess import PIPE, Popen
@@ -294,7 +294,23 @@ class Package(object):
 
         return results
 
+def apply_boto_fix():
+    """
+    Fix issues with Boto (currently S3 dotted bucket name calls).
+    """
+    boto_cfg = getenv("HOME") + "/.boto"
+
+    if not exists(boto_cfg):
+        with open(boto_cfg, "w") as ofd:
+            ofd.write("""\
+[s3]
+calling_format = boto.s3.connection.OrdinaryCallingFormat
+""")
+    return
+
 def main():
+    apply_boto_fix()
+
     for package in Package.get_packages():
         package.build()
         package.upload()
