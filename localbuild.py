@@ -175,7 +175,7 @@ class Package(object):
 
         # Open the bucket for the distribution.
         s3 = boto.s3.connect_to_region(self.s3_region)
-        bucket = s3.get_bucket(bucket_name)
+        bucket = s3.get_bucket(self.bucket_name)
 
         # The base for all packages for this OS/version combo is at
         # ${os_prefix}/${version}/
