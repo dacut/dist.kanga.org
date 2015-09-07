@@ -117,8 +117,8 @@ class Package(object):
             with open(spec_file_out, "w") as ofd:
                 ofd.write(output)
 
-            fd.seek(0, 0)
-            for line in fd:
+            ifd.seek(0, 0)
+            for line in ifd:
                 if line.startswith("%"):
                     break
                 line = line.strip()
