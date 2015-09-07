@@ -81,6 +81,9 @@ class Builder(object):
         return
 
     def build_all(self):
+        """
+        Launch builds for every known operating system.
+        """
         for osver in self.os_ids:
             os_id, version = osver.split("-", 1)
             self.build_os(os_id, version)
