@@ -90,16 +90,16 @@ class Package(object):
         """
         linux_dist = get_os_version()[0]
         if linux_dist in ("amzn", "fedora", "rhel"):
-            return self.rpm_build()
+            return self.build_rpm()
         elif linux_dist in ("debian", "ubuntu"):
-            return self.deb_build()
+            return self.build_deb()
         else:
             raise NotImplementedError(
                 "Cannot build for distribution %r" % linux_dist)
     
-    def rpm_build(self):
+    def build_rpm(self):
         """
-        pkg.rpm_build()
+        pkg.build_rpm()
 
         Create RPM and SRPM packages for RedHat and variants.
         """
@@ -146,6 +146,23 @@ class Package(object):
 
         self.invoke("rpmbuild", "-ba", spec_file_out)
 
+    def get_latest_existing_package(self):
+        """
+        pkg.get_latest_existing_package()
+
+        Retrieve the latest existing package (delegating to an OS appropriate
+        method).
+        """
+        linux_dist = get_os_version()[0]
+        if linux_dist in ("amzn", "fedora", "rhel"):
+            return self.get_latest_existing_rpm()
+        elif linux_dist in ("debian", "ubuntu"):
+            return self.get_latest_existing_deb()
+        else:
+            raise NotImplementedError(
+                "Cannot build for distribution %r" % linux_dist)
+
+
     def get_latest_existing_rpm(self):
         """
         pkg.get_latest_existing_rpm()
@@ -186,6 +203,21 @@ class Package(object):
             self.last_package = filename
             
         return
+
+    def upload(self):
+        """
+        pkg.upload()
+
+        Upload this package (delegating to an OS appropriate build method).
+        """
+        linux_dist = get_os_version()[0]
+        if linux_dist in ("amzn", "fedora", "rhel"):
+            return self.rpm_upload()
+        elif linux_dist in ("debian", "ubuntu"):
+            return self.deb_upload()
+        else:
+            raise NotImplementedError(
+                "Cannot build for distribution %r" % linux_dist)
 
     def rpm_upload(self):
         """
