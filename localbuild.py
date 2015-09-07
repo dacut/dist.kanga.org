@@ -179,7 +179,7 @@ class Package(object):
 
         # The base for all packages for this OS/version combo is at
         # ${os_prefix}/${version}/
-        osver_prefix = self.os_prefix(os) + "/" + version + "/"
+        osver_prefix = self.os_prefix[os] + "/" + version + "/"
 
         # Add RPMS/x86_64/ for binaries; we don't deal with 32-bit any more.
         # Then ${pkg_name}-${pkg_version}; after that is -${build_version},
