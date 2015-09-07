@@ -88,6 +88,7 @@ class Package(object):
 
         Build this package (delegating to an OS appropriate build method).
         """
+        linux_dist = get_os_version()[0]
         if linux_dist in ("amzn", "fedora", "rhel"):
             return self.rpm_build()
         elif linux_dist in ("debian", "ubuntu"):
