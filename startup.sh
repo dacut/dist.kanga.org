@@ -109,6 +109,7 @@ update-and-reboot-if-required () {
             apt-get update
             if apt-get dist-upgrade --simulate | \
                 grep "The following packages will be upgraded"; then
+                # Updates required.  Install them and reboot.
                 if ! DEBIAN_FRONTEND=noninteractive apt-get -y \
                     --option Dpkg::Options::="--force-confdef" \
                     --option Dpkg::Options::="--force-confold" dist-upgrade;
