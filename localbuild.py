@@ -107,10 +107,10 @@ class Package(object):
         spec_file_in = "SPECS/%s.spec.%s.in" % (self.name, linux_dist)
         spec_file_out = "SPECS/%s.spec.%s" % (self.name, linux_dist)
 
-        if self.latest_build is None:
+        if self.last_build is None:
             self.build = 0
         else:
-            self.build = self.latest_build + 1
+            self.build = self.last_build + 1
 
         with open(spec_file_in, "r") as ifd:
             output = ifd.read().replace("%{kanga_build}", str(self.build))
@@ -190,6 +190,7 @@ class Package(object):
         Upload the RPM and SRPM packages if they differ from the latest
         version.
         """
+        raise NotImplementedError()
 
     def invoke(self, *cmd):
         """
