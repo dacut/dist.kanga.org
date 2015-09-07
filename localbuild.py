@@ -123,7 +123,7 @@ class Package(object):
                     break
                 line = line.strip()
                 if not line:
-                    continuex50
+                    continue
                 key, value = line.split(":", 1)
                 spec_data[key] = value
         
