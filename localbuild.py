@@ -88,6 +88,8 @@ class Package(object):
 
         Build this package (delegating to an OS appropriate build method).
         """
+        self.get_latest_existing_package()
+
         linux_dist = get_os_version()[0]
         if linux_dist in ("amzn", "fedora", "rhel"):
             return self.build_rpm()
