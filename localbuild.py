@@ -185,7 +185,7 @@ class Package(object):
         # Then ${pkg_name}-${pkg_version}; after that is -${build_version},
         # but we want to iterate over that.
         rpm_prefix = (osver_prefix + "RPMS/x86_64/" + self.name + "-" +
-                      self.version)
+                      self.version + "-")
         
         rpm_candidates = bucket.list(prefix=rpm_prefix)
 
