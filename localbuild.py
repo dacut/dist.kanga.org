@@ -206,7 +206,8 @@ class Package(object):
                 last_key = rpm_candidate
 
         if self.last_build is not None:
-            makedirs("RPMS/x86_64")
+            if not exists ("RPMS/x86_64"):
+                makedirs("RPMS/x86_64")
             filename = "RPMS/x86_64/" + last_key.name.rsplit("/", 1)[1]
             last_key.get_contents_to_filename(filename)
             self.last_package = filename
