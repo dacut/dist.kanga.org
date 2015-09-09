@@ -221,10 +221,10 @@ class Package(object):
         latest RPM.  If the latest RPM isn't available, this is always
         True.
         """
-        if self.latest_package is None:
+        if self.last_package is None:
             return True
 
-        return not self.invoke("rpmdiff", "--ignore", "T", self.latest_package,
+        return not self.invoke("rpmdiff", "--ignore", "T", self.last_package,
                                "RPMS/x86_64/" + self.rpm_name)
 
     def upload_rpm(self):
