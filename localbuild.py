@@ -62,11 +62,17 @@ class Package(object):
 
     s3_region = "us-west-2"
     bucket_name = "dist.kanga.org"
-    os_prefix = {
+    os_prefixes = {
         'amzn': "AmazonLinux",
         'fedora': "Fedora",
         'rhel': "RHEL",
         'ubuntu': "Ubuntu",
+    }
+    dist_suffixes = {
+        'amzn': {
+            "2014.09": ".amzn1",
+            "2015.03": ".amzn1",
+        },
     }
 
     def __init__(self, name, version):
@@ -80,25 +86,35 @@ class Package(object):
         self.version = version
         self.last_build = None
         self.last_package = None
-        return
 
-    def build(self):
-        """
-        pkg.build()
+        self.linux_dist, self.dist_version = get_os_version()
 
-        Build this package (delegating to an OS appropriate build method).
-        """
-        self.get_latest_existing_package()
-
-        linux_dist = get_os_version()[0]
-        if linux_dist in ("amzn", "fedora", "rhel"):
-            return self.build_rpm()
-        elif linux_dist in ("debian", "ubuntu"):
-            return self.build_deb()
+        if self.linux_dist in ("amzn", "fedora", "rhel"):
+            self.get_latest = self.get_latest_rpm
+            self.build = self.build_rpm
+            self.has_diffs = self.has_diffs_rpm
+            self.upload = self.upload_rpm
+        elif self.linux_dist in ("debian", "ubuntu"):
+            self.get_latest = self.get_latest_deb
+            self.build = self.build_deb
+            self.has_diffs = self.has_diffs_deb
+            self.upload = self.upload_deb
         else:
             raise NotImplementedError(
                 "Cannot build for distribution %r" % linux_dist)
-    
+
+        self.os_prefix = self.os_prefixes[self.linux_dist]
+        self.dist_suffix = self.dist_suffixes.get(self.linux_dist, "")
+        if isinstance(self.dist_suffix, dict):
+            self.dist_suffix = self.dist_suffix.get(self.dist_version, "")
+
+        self.binary_s3_prefix = (
+            self.os_prefix + "/" + self.dist_version + "/RPMS/x86_64/")
+        self.source_s3_prefix = (
+            self.os_prefix + "/" + self.dist_version + "/SRPMS/")
+        
+        return
+
     def build_rpm(self):
         """
         pkg.build_rpm()
@@ -141,6 +157,15 @@ class Package(object):
             dest = "SOURCES/" + basename(source)
             self.download(source, dest)
             source_id += 1
+
+        # Get the RPM name
+        self.rpm_name = (
+            spec_data.get("Name").strip() + "-" +
+            spec_data.get("Version").strip() + "-" +
+            spec_data.get("Release").strip() + ".x86_64.rpm")
+        self.rpm_name = self.rpm_name.replace(
+            "%{kanga_build}", str(self.build))
+        self.rpm_name = self.rpm_name.replace("%{dist}", self.dist_suffix)
         
         # Install any necessary package prerequisites
         pkg_list = spec_data.get("BuildRequires", "").strip().split()
@@ -148,45 +173,20 @@ class Package(object):
 
         self.invoke("rpmbuild", "-ba", spec_file_out)
 
-    def get_latest_existing_package(self):
+    def get_latest_rpm(self):
         """
-        pkg.get_latest_existing_package()
-
-        Retrieve the latest existing package (delegating to an OS appropriate
-        method).
-        """
-        linux_dist = get_os_version()[0]
-        if linux_dist in ("amzn", "fedora", "rhel"):
-            return self.get_latest_existing_rpm()
-        elif linux_dist in ("debian", "ubuntu"):
-            return self.get_latest_existing_deb()
-        else:
-            raise NotImplementedError(
-                "Cannot build for distribution %r" % linux_dist)
-
-
-    def get_latest_existing_rpm(self):
-        """
-        pkg.get_latest_existing_rpm()
+        pkg.get_latest_rpm()
 
         Download the latest RPM and SRPM packages for RedHat and variants.
         """
-        os, version = get_os_version()
-
         # Open the bucket for the distribution.
         s3 = boto.s3.connect_to_region(self.s3_region)
         bucket = s3.get_bucket(self.bucket_name)
 
-        # The base for all packages for this OS/version combo is at
-        # ${os_prefix}/${version}/
-        osver_prefix = self.os_prefix[os] + "/" + version + "/"
-
-        # Add RPMS/x86_64/ for binaries; we don't deal with 32-bit any more.
-        # Then ${pkg_name}-${pkg_version}; after that is -${build_version},
-        # but we want to iterate over that.
-        rpm_prefix = (osver_prefix + "RPMS/x86_64/" + self.name + "-" +
-                      self.version + "-")
-        
+        # Add ${pkg_name}-${pkg_version} to the source prefix; after that is
+        # -${build_version}, but we want to iterate over the builds.
+        rpm_prefix = (
+            self.binary_3_prefix + self.name + "-" + self.version + "-")
         rpm_candidates = bucket.list(prefix=rpm_prefix)
 
         for rpm_candidate in rpm_candidates:
@@ -209,31 +209,36 @@ class Package(object):
             
         return
 
-    def upload(self):
+    def has_diffs_rpm(self):
         """
-        pkg.upload()
+        pkg.has_diffs_rpm() -> bool
 
-        Upload this package (delegating to an OS appropriate build method).
+        Indicates whether the newly built RPM has differences vs. the
+        latest RPM.  If the latest RPM isn't available, this is always
+        True.
         """
-        linux_dist = get_os_version()[0]
-        if linux_dist in ("amzn", "fedora", "rhel"):
-            return self.rpm_upload()
-        elif linux_dist in ("debian", "ubuntu"):
-            return self.deb_upload()
-        else:
-            raise NotImplementedError(
-                "Cannot build for distribution %r" % linux_dist)
+        if self.latest_package is None:
+            return True
 
-    def rpm_upload(self):
+        return not self.invoke("rpmdiff", "--ignore", "T", self.latest_package,
+                               "RPMS/x86_64/" + self.rpm_name)
+
+    def upload_rpm(self):
         """
-        pkg.rpm_upload()
+        pkg.upload_rpm()
 
         Upload the RPM and SRPM packages if they differ from the latest
         version.
         """
-        raise NotImplementedError()
+        s3 = boto.s3.connect_to_region(self.s3_region)
+        bucket = s3.get_bucket(self.bucket_name)
+        key_name = self.binary_s3_prefix + self.rpm_name
+        key = bucket.new_key(key_name)
+        key.set_contents_from_filename(
+            "RPMS/x86_64/" + self.rpm_name, reduced_redundancy=True,
+            policy='public-read')
 
-    def invoke(self, *cmd):
+    def invoke(self, *cmd, **kw):
         """
         pkg.invoke(*cmd)
 
@@ -255,11 +260,17 @@ class Package(object):
                 syslog(LOG_WARNING, line)
 
         if proc.returncode != 0:
-            msg = "Failed to invoke %r: exit code %d" % (cmd, proc.returncode)
-            syslog(LOG_ERR, msg)
-            raise RuntimeError(msg)
+            if not kw.get("error_ok", False):
+                msg = ("Failed to invoke %r: exit code %d" %
+                       (cmd, proc.returncode))
+                syslog(LOG_ERR, msg)
+                raise RuntimeError(msg)
+            else:
+                msg = ("Invocation of %r resulted in non-zero exit code %d" %
+                       (cmd, proc.returncode))
+                syslog(LOG_INFO, proc.returncode)
 
-        return
+        return (proc.returncode == 0)
 
     def download(self, source, dest):
         """
@@ -315,8 +326,10 @@ def main():
     apply_boto_fix()
 
     for package in Package.get_packages():
+        package.get_latest()
         package.build()
-        package.upload()
+        if package.has_diffs():
+            package.upload()
 
 if __name__ == "__main__":
     main()
