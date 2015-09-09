@@ -116,7 +116,7 @@ class Package(object):
         # Boto can't handle dots in bucket names (certificate validation
         # issues with TLS), so we have to use the older calling format.
         self.s3 = boto.s3.connect_to_region(
-            self.s3_region, calling_format=OrdinaryCallingFormat)
+            self.s3_region, calling_format=OrdinaryCallingFormat())
 
         # Open the bucket for the distribution.
         self.bucket = self.s3.get_bucket(self.bucket_name)
