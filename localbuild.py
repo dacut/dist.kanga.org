@@ -1,6 +1,7 @@
 #!/usr/bin/env python2.7
 from __future__ import absolute_import, print_function
 import boto.s3
+from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
 from os import getenv, makedirs
 from os.path import basename, dirname, exists
@@ -86,7 +87,6 @@ class Package(object):
         self.version = version
         self.last_build = None
         self.last_package = None
-
         self.linux_dist, self.dist_version = get_os_version()
 
         if self.linux_dist in ("amzn", "fedora", "rhel"):
@@ -112,6 +112,14 @@ class Package(object):
             self.os_prefix + "/" + self.dist_version + "/RPMS/x86_64/")
         self.source_s3_prefix = (
             self.os_prefix + "/" + self.dist_version + "/SRPMS/")
+
+        # Boto can't handle dots in bucket names (certificate validation
+        # issues with TLS), so we have to use the older calling format.
+        self.s3 = boto.s3.connect_to_region(
+            self.s3_region, calling_format=OrdinaryCallingFormat)
+
+        # Open the bucket for the distribution.
+        self.bucket = self.s3.get_bucket(self.bucket_name)
         
         return
 
@@ -179,15 +187,11 @@ class Package(object):
 
         Download the latest RPM and SRPM packages for RedHat and variants.
         """
-        # Open the bucket for the distribution.
-        s3 = boto.s3.connect_to_region(self.s3_region)
-        bucket = s3.get_bucket(self.bucket_name)
-
         # Add ${pkg_name}-${pkg_version} to the source prefix; after that is
         # -${build_version}, but we want to iterate over the builds.
         rpm_prefix = (
-            self.binary_3_prefix + self.name + "-" + self.version + "-")
-        rpm_candidates = bucket.list(prefix=rpm_prefix)
+            self.binary_s3_prefix + self.name + "-" + self.version + "-")
+        rpm_candidates = self.bucket.list(prefix=rpm_prefix)
 
         for rpm_candidate in rpm_candidates:
             assert rpm_candidate.name.startswith(rpm_prefix)
@@ -230,10 +234,8 @@ class Package(object):
         Upload the RPM and SRPM packages if they differ from the latest
         version.
         """
-        s3 = boto.s3.connect_to_region(self.s3_region)
-        bucket = s3.get_bucket(self.bucket_name)
         key_name = self.binary_s3_prefix + self.rpm_name
-        key = bucket.new_key(key_name)
+        key = self.bucket.new_key(key_name)
         key.set_contents_from_filename(
             "RPMS/x86_64/" + self.rpm_name, reduced_redundancy=True,
             policy='public-read')
@@ -308,23 +310,7 @@ class Package(object):
 
         return results
 
-def apply_boto_fix():
-    """
-    Fix issues with Boto (currently S3 dotted bucket name calls).
-    """
-    boto_cfg = getenv("HOME") + "/.boto"
-
-    if not exists(boto_cfg):
-        with open(boto_cfg, "w") as ofd:
-            ofd.write("""\
-[s3]
-calling_format = boto.s3.connection.OrdinaryCallingFormat
-""")
-    return
-
 def main():
-    apply_boto_fix()
-
     for package in Package.get_packages():
         package.get_latest()
         package.build()
