@@ -3,18 +3,17 @@ from __future__ import absolute_import, print_function
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
-from logging import basicConfig, getLogger
-from logging.handlers import StreamHandler, SysLogHandler
+from logging import DEBUG, Formatter, getLogger, Handler, INFO, StreamHandler
+from logging.handlers import SysLogHandler
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
 from re import compile as re_compile
 from subprocess import PIPE, Popen
-from syslog import (
-    LOG_ERR, LOG_INFO, LOG_LOCAL1, LOG_WARNING, openlog, syslog)
+from sys import stderr
+from syslog import LOG_LOCAL1
 from tempfile import gettempdir
+from time import strftime
 from urllib2 import urlopen
-
-openlog("localbuild.py", 0, LOG_LOCAL1)
 
 id_regex = re_compile(r'^\s*ID=(?:"([^"]*)"|([^ ]*))\s*$')
 version_regex = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
@@ -22,7 +21,7 @@ version_regex = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
 linux_dist = None
 dist_version = None
 
-class MultiHandler(object):
+class MultiHandler(Handler):
     """
     Send log events to multiple handlers.
     """
@@ -39,6 +38,12 @@ class MultiHandler(object):
     def flush(self):
         for handler in self.handlers:
             handler.flush()
+
+class Log8601Formatter(Formatter):
+    def formatTime(self, record, datefmt=None):
+        return "%s.%s" % (
+            strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created)),
+            record.msecs)
 
 def get_os_version():
     """
@@ -440,6 +445,13 @@ def main():
 
 if __name__ == "__main__":
     log = getLogger()
-    log.addHandler(MultiHandler(
-        (StreamHandler(stderr), SysLogHandler(facility=LOG_LOCAL1))))
+    log.setLevel(DEBUG)
+    stderr_handler = StreamHandler(stderr)
+    syslog_handler = SysLogHandler(facility=LOG_LOCAL1)
+    formatter = Log8601Formatter("%(asctime)s %(levelname)s: %(message)s")
+    stderr_handler.setFormatter(formatter)
+    syslog_handler.setFormatter(formatter)
+    log.addHandler(MultiHandler([stderr_handler, syslog_handler]))
+
+    getLogger("boto").setLevel(INFO)
     main()
