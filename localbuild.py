@@ -219,6 +219,8 @@ class Package(object):
             self.binary_s3_prefix + self.name + "-" + self.version + "-")
         rpm_candidates = self.bucket.list(prefix=rpm_prefix)
 
+        log.debug("Looking for previous RPMs using prefix %s", rpm_prefix)
+
         for rpm_candidate in rpm_candidates:
             assert rpm_candidate.name.startswith(rpm_prefix)
             suffix = rpm_candidate.name[len(rpm_prefix):]
@@ -228,12 +230,18 @@ class Package(object):
                 self.last_build = build
                 last_key = rpm_candidate
 
+            log.debug("Candidate found: %s", rpm_candidate)
+
         if self.last_build is not None:
             if not exists ("RPMS/x86_64"):
                 makedirs("RPMS/x86_64")
             filename = "RPMS/x86_64/" + last_key.name.rsplit("/", 1)[1]
+            log.debug("Retrieving %s", last_key.name)
             last_key.get_contents_to_filename(filename)
             self.last_package = filename
+            log.debug("Last build downloaded to %s", filename)
+        else:
+            log.debug("No previous builds found.")
             
         return
 
@@ -351,6 +359,9 @@ class Package(object):
             RPMTAG_DESCRIPTION, RPMTAG_GROUP, RPMTAG_LICENSE, RPMTAG_NAME,
             RPMTAG_POSTIN, RPMTAG_POSTTRANS, RPMTAG_POSTUN, RPMTAG_PREIN,
             RPMTAG_PRETRANS, RPMTAG_PREUN, RPMTAG_SUMMARY, RPMTAG_URL)
+
+        log.debug("diff_rpm: %s vs %s", rpm_filename_1, rpm_filename_2)
+
         tmpdir = gettempdir()
         rpm1 = Pkg(rpm_filename_1, tmpdir).header
         rpm2 = Pkg(rpm_filename_2, tmpdir).header
@@ -361,6 +372,7 @@ class Package(object):
                     RPMTAG_POSTUN, RPMTAG_PREIN, RPMTAG_PRETRANS, RPMTAG_PREUN,
                     RPMTAG_SUMMARY, RPMTAG_URL):
             if rpm1[tag] != rpm2[tag]:
+                log.debug("tag %s differs: %r vs %r", tag, rpm1[tag], rpm2[tag])
                 return True
 
         # Ignore provides, but make sure requires, conflicts, and obsoletes
@@ -381,6 +393,9 @@ class Package(object):
             # These are parallel arrays, so we zip them up for easy searching.
             rpm1_hdata = set(zip(rpm1_values, rpm1_flags, rpm1_versions))
             rpm2_hdata = set(zip(rpm2_values, rpm2_flags, rpm2_versions))
+
+            log.info("header_name=%r, rpm1_hdata=%r, rpm2_hdata=%r",
+                     header_name, rpm1_hdata, rpm2_hdata)
 
             # Make sure each item is present in the other.
             for entry in rpm1_hdata:
@@ -404,19 +419,28 @@ class Package(object):
 
         for filename, metadata1 in rpm1_files.iteritems():
             metadata2 = rpm2_files.get(filename)
-            if (metadata2 is None or
-                metadata1[:2] != metadata2[:2] or
+
+            if metadata2 is None:
+                log.debug("File %s is missing from %s", filename,
+                          rpm_filename_2)
+                return True
+
+            if (metadata1[:2] != metadata2[:2] or
                 metadata1[3:] != metadata2[3:]):
-                return False
+                log.debug("File %s metadata differs", filename)
+                return True
 
         # Only need to check for existence in rpm1_files; common files have
         # already passed the comparison.
         for filename in rpm2_files.iterkeys():
             if rpm1_files.get(filename) is None:
-                return False
+                log.debug("File %s is missing from %s", filename,
+                          rpm_filename_1)
+                return True
 
+        log.debug("RPMs are equivalent")
         # RPMs are equivalent.
-        return True
+        return False
 
 def main():
     log.info("Invoking localbuild.py")
