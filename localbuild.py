@@ -9,6 +9,7 @@ from re import compile as re_compile
 from subprocess import PIPE, Popen
 from syslog import (
     LOG_ERR, LOG_INFO, LOG_LOCAL1, LOG_WARNING, openlog, syslog)
+from tempfile import gettempdir
 from urllib2 import urlopen
 
 openlog("localbuild.py", 0, LOG_LOCAL1)
@@ -310,6 +311,85 @@ class Package(object):
                 results.append(cls(**kw))
 
         return results
+
+    @classmethod
+    def diff_rpm(cls, rpm_filename_1, rpm_filename_2):
+        """
+        Package.diff_rpm(rpm_filename_1, rpm_filename_2) -> bool
+
+        Indicate whether two RPM package files differ.
+        """
+        # Note: We can't use rpmdiff -- it diffs the Provides header
+        # unconditionally, so it always indicates the RPMs differ.
+
+        if isdir("/usr/share/rpmlint"):
+            import site
+            site.addsitedir("/usr/share/rpmlint")
+        from Pkg import Pkg
+        from rpm import (
+            RPMTAG_DESCRIPTION, RPMTAG_GROUP, RPMTAG_LICENSE, RPMTAG_NAME,
+            RPMTAG_POSTIN, RPMTAG_POSTTRANS RPMTAG_POSTUN, RPMTAG_PREIN,
+            RPMTAG_PRETRANS, RPMTAG_PREUN, RPMTAG_SUMMARY, RPMTAG_URL)
+        tmpdir = gettempdir()
+        rpm1 = Pkg(rpm_filename_1, tmpdir).header
+        rpm2 = Pkg(rpm_filename_2, tmpdir).header
+
+        # Check for differences in tags
+        for tag in (RPMTAG_DESCRIPTION, RPMTAG_GROUP, RPMTAG_LICENSE,
+                    RPMTAG_NAME, RPMTAG_POSTIN, RPMTAG_POSTTRANS RPMTAG_POSTUN,
+                    RPMTAG_PREIN, RPMTAG_PRETRANS, RPMTAG_PREUN,
+                    RPMTAG_SUMMARY, RPMTAG_URL):
+            if rpm1[tag] != rpm2[tag]:
+                return True
+
+        # Ignore provides, but make sure requires, conflicts, and obsoletes
+        # headers are the same.
+        for header_name in ('REQUIRE', 'CONFLICT', 'OBSOLETE'):
+            rpm1_values = rpm1[header_name + 'S']
+            rpm2_values = rpm2[header_name + 'S']
+            rpm1_flags = rpm1[header_name + 'FLAGS']
+            rpm2_flags = rpm2[header_name + 'FLAGS']
+            rpm1_versions = rpm1[header_name + 'VERSION']
+            rpm2_versions = rpm2[header_name + 'VERSION']
+
+            if not isinstance(rpm1_flags, (list, tuple)):
+                rpm1_flags = [rpm1_flags]
+            if not isinstance(rpm2_flags, (list, tuple)):
+                rpm2_flags = [rpm2_flags]
+
+            # These are parallel arrays, so we zip them up for easy searching.
+            rpm1_hdata = set(zip(rpm1_values, rpm1_flags, rpm1_versions))
+            rpm2_hdata = set(zip(rpm2_values, rpm2_flags, rpm2_versions))
+
+            # Make sure each item is present in the other.
+            for entry in rpm1_hdata:
+                if entry not in rpm2_hdata:
+                    return True
+
+            for entry in rpm2_hdata:
+                if entry not in rpm1_hdata:
+                    return True
+
+        # All tags and headers are equal.  Compare file metadata.
+        # fiFromHeader() returns a file metadata iterator; the fields returned
+        # by the iterator are (name, size, mode, timestamp, flags, device,
+        # inode, nlinks, state, vflags, user, group, digest)
+        #
+        # We ignore the timestamp.
+        rpm1_files = dict([(file_data[0], file_data[1:])
+                           for file_data rpm1.fiFromHeader()])
+        rpm2_files = dict([(file_data[0], file_data[1:])
+                           for file_data rpm2.fiFromHeader()])
+
+        for filename, metadata1 in rpm1_files.iteritems():
+            metadata2 = rpm2_files.get(filenam)
+            if (metadata2 is None or
+                metadata1[:2] != metadata2[:2] or
+                metadata1[3:] != metadata2[3:])
+                return False
+
+        # RPMs are equivalent.
+        return True
 
 def main():
     for package in Package.get_packages():
