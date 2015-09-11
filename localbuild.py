@@ -394,11 +394,29 @@ class Package(object):
         return True
 
 def main():
-    for package in Package.get_packages():
-        package.get_latest()
-        package.build()
-        if package.has_diffs():
-            package.upload()
+    log.info("Invoking localbuild.py")
+    try:
+        for package in Package.get_packages():
+            log.info("Building %s-%s", package.name, package.version)
+            package.get_latest()
+            if package.last_build is not None:
+                log.info("Previous build is %d", package.last_build)
+            else:
+                log.info("No previous build")
+            package.build()
+
+            if package.has_diffs():
+                log.info("Build %d differs from previous build; uploading.",
+                         package.build)
+                package.upload()
+                log.info("Upload complete.")
+            else:
+                log.info("Build %d is the same as previous build %d; skipping "
+                         "upload.", package.build, package.last_build)
+    except Exception as e:
+        log.error("localbuild.py failed", exc_info=True)
+    else:
+        log.info("localbuild.py succeeded")
 
 if __name__ == "__main__":
     main()
