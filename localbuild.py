@@ -328,7 +328,7 @@ class Package(object):
         from Pkg import Pkg
         from rpm import (
             RPMTAG_DESCRIPTION, RPMTAG_GROUP, RPMTAG_LICENSE, RPMTAG_NAME,
-            RPMTAG_POSTIN, RPMTAG_POSTTRANS RPMTAG_POSTUN, RPMTAG_PREIN,
+            RPMTAG_POSTIN, RPMTAG_POSTTRANS, RPMTAG_POSTUN, RPMTAG_PREIN,
             RPMTAG_PRETRANS, RPMTAG_PREUN, RPMTAG_SUMMARY, RPMTAG_URL)
         tmpdir = gettempdir()
         rpm1 = Pkg(rpm_filename_1, tmpdir).header
