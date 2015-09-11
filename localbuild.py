@@ -336,8 +336,8 @@ class Package(object):
 
         # Check for differences in tags
         for tag in (RPMTAG_DESCRIPTION, RPMTAG_GROUP, RPMTAG_LICENSE,
-                    RPMTAG_NAME, RPMTAG_POSTIN, RPMTAG_POSTTRANS RPMTAG_POSTUN,
-                    RPMTAG_PREIN, RPMTAG_PRETRANS, RPMTAG_PREUN,
+                    RPMTAG_NAME, RPMTAG_POSTIN, RPMTAG_POSTTRANS,
+                    RPMTAG_POSTUN, RPMTAG_PREIN, RPMTAG_PRETRANS, RPMTAG_PREUN,
                     RPMTAG_SUMMARY, RPMTAG_URL):
             if rpm1[tag] != rpm2[tag]:
                 return True
@@ -377,15 +377,15 @@ class Package(object):
         #
         # We ignore the timestamp.
         rpm1_files = dict([(file_data[0], file_data[1:])
-                           for file_data rpm1.fiFromHeader()])
+                           for file_data in rpm1.fiFromHeader()])
         rpm2_files = dict([(file_data[0], file_data[1:])
-                           for file_data rpm2.fiFromHeader()])
+                           for file_data in rpm2.fiFromHeader()])
 
         for filename, metadata1 in rpm1_files.iteritems():
             metadata2 = rpm2_files.get(filenam)
             if (metadata2 is None or
                 metadata1[:2] != metadata2[:2] or
-                metadata1[3:] != metadata2[3:])
+                metadata1[3:] != metadata2[3:]):
                 return False
 
         # RPMs are equivalent.
