@@ -4,7 +4,7 @@ import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
 from os import getenv, makedirs
-from os.path import basename, dirname, exists
+from os.path import basename, dirname, exists, isdir
 from re import compile as re_compile
 from subprocess import PIPE, Popen
 from syslog import (
@@ -226,8 +226,7 @@ class Package(object):
         if self.last_package is None:
             return True
 
-        return not self.invoke("rpmdiff", "--ignore", "T", self.last_package,
-                               "RPMS/x86_64/" + self.rpm_name)
+        return self.diff_rpm(self.last_package, "RPMS/x86_64/" + self.rpm_name)
 
     def upload_rpm(self):
         """
@@ -382,10 +381,16 @@ class Package(object):
                            for file_data in rpm2.fiFromHeader()])
 
         for filename, metadata1 in rpm1_files.iteritems():
-            metadata2 = rpm2_files.get(filenam)
+            metadata2 = rpm2_files.get(filename)
             if (metadata2 is None or
                 metadata1[:2] != metadata2[:2] or
                 metadata1[3:] != metadata2[3:]):
+                return False
+
+        # Only need to check for existence in rpm1_files; common files have
+        # already passed the comparison.
+        for filename in rpm2_files.iterkeys():
+            if rpm1_files.get(filename) is None:
                 return False
 
         # RPMs are equivalent.
