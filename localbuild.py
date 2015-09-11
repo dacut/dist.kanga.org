@@ -3,6 +3,8 @@ from __future__ import absolute_import, print_function
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
+from logging import basicConfig, getLogger
+from logging.handlers import StreamHandler, SysLogHandler
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
 from re import compile as re_compile
@@ -19,6 +21,24 @@ version_regex = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
 
 linux_dist = None
 dist_version = None
+
+class MultiHandler(object):
+    """
+    Send log events to multiple handlers.
+    """
+    def __init__(self, handlers):
+        super(MultiHandler, self).__init__()
+        self.handlers = handlers
+        return
+
+    def emit(self, record):
+        for handler in self.handlers:
+            handler.emit(record)
+        return
+
+    def flush(self):
+        for handler in self.handlers:
+            handler.flush()
 
 def get_os_version():
     """
@@ -244,31 +264,31 @@ class Package(object):
 
         Invoke a command, logging stdout and stderr to syslog 
         """
-        syslog(LOG_INFO, "Invoking %r" % (cmd,))
+        log.info("Invoking %r", cmd)
         proc = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
         out, err = proc.communicate()
 
         out = out.strip()
         if out:
-            syslog(LOG_INFO, "stdout:")
+            log.info("stdout:")
             for line in out.split("\n"):
-                syslog(LOG_INFO, line)
+                log.info("%s", line)
         err = err.strip()
         if err:
-            syslog(LOG_WARNING, "stderr:")
+            log.warning("stderr:")
             for line in err.split("\n"):
-                syslog(LOG_WARNING, line)
+                log.warning("%s", line)
 
         if proc.returncode != 0:
             if not kw.get("error_ok", False):
                 msg = ("Failed to invoke %r: exit code %d" %
                        (cmd, proc.returncode))
-                syslog(LOG_ERR, msg)
+                log.error(msg)
                 raise RuntimeError(msg)
             else:
                 msg = ("Invocation of %r resulted in non-zero exit code %d" %
                        (cmd, proc.returncode))
-                syslog(LOG_INFO, proc.returncode)
+                log.info(msg)
 
         return (proc.returncode == 0)
 
@@ -419,4 +439,7 @@ def main():
         log.info("localbuild.py succeeded")
 
 if __name__ == "__main__":
+    log = getLogger()
+    log.addHandler(MultiHandler(
+        (StreamHandler(stderr), SysLogHandler(facility=LOG_LOCAL1))))
     main()
