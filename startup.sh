@@ -90,37 +90,26 @@ EOF
     fi;
 }
 
-update-and-reboot-if-required () {
+update-system () {
     case "$ID" in
         amzn | fedora | rhel )
-            yum check-update
-            if [[ $? -eq 100 ]]; then
-                # Updates required.  Install them and reboot.
-                if ! yum -y update; then
-                    error "yum -y update failed";
-                    return 1;
-                fi;
-                sync
-                echo "Updates installed.  Rebooting server.";
-                reboot;
-            fi;;
+            if ! yum -y update; then
+                error "Failed to install updates";
+                exit 1;
+            fi;
+            sync
+            echo "Updates installed."
+            ;;
 
         debian | ubuntu )
             apt-get update
-            if apt-get dist-upgrade --simulate | \
-                grep "The following packages will be upgraded"; then
-                # Updates required.  Install them and reboot.
-                if ! DEBIAN_FRONTEND=noninteractive apt-get -y \
-                    --option Dpkg::Options::="--force-confdef" \
-                    --option Dpkg::Options::="--force-confold" dist-upgrade;
-                then
-                    error "apt-get dist-upgrade failed";
-                    return 1;
-                fi;
-                sync
-                echo "Updates installed.  Rebooting server.";
-                reboot || exit 1;
-            fi;;
+            if ! DEBIAN_FRONTEND=noninteractive apt-get -y \
+                --option Dpkg::Options::="--force-confdef" \
+                --option Dpkg::Options::="--force-confold" dist-upgrade; then
+                error "Failed to install updates";
+                exit 1;
+            fi;
+            echo "Updates installed.";;
 
         * )
             error "Unsupported system $ID";
@@ -162,7 +151,36 @@ install-required-packages () {
     return 0;
 }
 
-start-cloudwatch
-update-and-reboot-if-required
-install-required-packages
+fix-sudoers-tty () {
+    grep -E -v 'Defaults\s+requiretty' /etc/sudoers > /etc/sudoers.new
+    mv /etc/sudoers.new /etc/sudoers
+}
 
+create-build-user () {
+    useradd --comment "dist.kanga.org build user" --shell /bin/false \
+        --home /home/builder builder
+    cat > /etc/sudoers.d/builder <<EOF
+builder ALL=(ALL) NOPASSWD:ALL
+EOF
+}
+
+git-clone () {
+    cd /home/builder
+    su -s /bin/sh - builder -c \
+'cd /home/builder && git clone https://github.com/dacut/dist.kanga.org.git'
+}
+
+schedule-repository-build () {
+    cat >> /etc/rc.local <<EOF
+su -s /bin/sh - builder -c \
+'cd /home/builder/dist.kanga.org && ./localbuild.py && ./repoupdate.py'
+EOF
+}
+
+start-cloudwatch
+update-system
+install-required-packages
+create-build-user
+git-clone
+schedule-repository-build
+reboot

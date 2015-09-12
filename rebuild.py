@@ -75,6 +75,10 @@ class Builder(object):
             instance_type=self.instance_type, block_device_map=bdm,
             instance_profile_name=self.instance_profile_name,
             network_interfaces=nic)
+        self.ec2.create_tags(
+            [instance.id for instance in reservation.instances],
+            {"Name": "Dist Build",
+             "OS": os_id + " " + version})
 
         self.log.info("Launched %s %s with instance id %s", os_id, version,
                       reservation.instances[0].id)
@@ -94,7 +98,7 @@ class Builder(object):
                    "security-groups"):
             self.security_groups.extend(value.split(","))
         elif opt in ("-h", "--help"):
-            self.usage(stdout)
+            usage(stdout)
             raise StopIteration()
         elif opt in ("-k", "--key-name", "--keyname", "--key", "key-name",
                      "key"):
