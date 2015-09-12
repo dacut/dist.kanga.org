@@ -7,6 +7,7 @@ from csv import reader as csv_reader
 from kangadistutil import Distribution, invoke, log
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
+from sys import exit
 from tempfile import gettempdir
 from urllib2 import urlopen
 
@@ -365,8 +366,10 @@ def main():
                          "upload.", package.build, package.last_build)
     except Exception as e:
         log.error("localbuild.py failed", exc_info=True)
+        return 1
     else:
         log.info("localbuild.py succeeded")
+        return 0
 
 if __name__ == "__main__":
-    main()
+    exit(main())

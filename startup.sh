@@ -134,7 +134,7 @@ install-required-packages () {
     case "$ID" in
         amzn | fedora | rhel )
             if ! yum -y install autoconf automake gcc git glib2-devel \
-                libtool rpm-devel rpmlint rpm-build; then
+                libtool rpm-devel rpmlint rpm-build createrepo; then
                 error "Failed to install additional build tools via yum";
                 return 1;
             fi;;
