@@ -4,7 +4,7 @@ from boto.exception import S3ResponseError
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
-from kangadistutil import Distribution, get_os_version
+from kangadistutil import Distribution
 from logging import DEBUG, Formatter, getLogger, Handler, INFO, StreamHandler
 from logging.handlers import SysLogHandler
 from os import getenv, makedirs
