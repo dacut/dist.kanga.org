@@ -1,6 +1,7 @@
 #!/usr/bin/env python2.7
 from __future__ import absolute_import, print_function
 import boto.s3
+from boto.s3.connection import OrdinaryCallingFormat
 from boto.s3.key import Key
 from cgi import escape as escape_html
 from six.moves import cStringIO as StringIO
@@ -56,7 +57,8 @@ def main(args):
         print("Unknown argument %r" % args[0], file=stderr)
         return 1
 
-    s3 = boto.s3.connect_to_region(region, profile_name=profile)
+    s3 = boto.s3.connect_to_region(
+        region, profile_name=profile, calling_format=OrdinaryCallingFormat())
     generate_indexes(bucket)
     return 0
 
@@ -99,6 +101,7 @@ def generate_indexes(bucket_name):
 
     for dir_name in sorted(all_dirs):
         display_name = dir_name if dir_name else "/"
+
         html = StringIO()
         html.write("<DOCTYPE html>\n"
                    "<html>\n"
@@ -112,6 +115,13 @@ def generate_indexes(bucket_name):
                    '      <tr><th valign="top">&nbsp;</th>'
                    '<th>Name</th><th>Last modified</th><th>Size</th>'
                    '<th>Description</th></tr>\n')
+
+        if dir_name:
+            parent = ("/" + dir_name).rsplit("/", 1)[0]
+            html.write('    <tr><td valign="top"><img src="/icons/back.gif"'
+                       ' alt="DIR"></td><td><a href="%s/index.html">'
+                       'Parent Directory</a></td><td>&nbsp;</td><td>-</td>'
+                       '<td>&nbsp;</td></tr>\n' % escape_html(parent))
 
         for subdir in sorted(subdirs.get(dir_name, [])):
             html.write('      <tr><td valign="top"><img src="/icons/'
