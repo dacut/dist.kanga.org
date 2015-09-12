@@ -1,5 +1,6 @@
 from __future__ import absolute_import, print_function
-from logging import DEBUG, Formatter, getLogger, Handler, INFO, StreamHandler
+from logging import (
+    DEBUG, FileHandler, Formatter, getLogger, Handler, INFO, StreamHandler)
 from logging.handlers import SysLogHandler
 from os import getenv
 from os.path import basename, exists
