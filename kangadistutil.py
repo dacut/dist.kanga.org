@@ -1,6 +1,7 @@
 from __future__ import absolute_import, print_function
 from logging import DEBUG, Formatter, getLogger, Handler, INFO, StreamHandler
 from logging.handlers import SysLogHandler
+from os import getenv
 from os.path import basename, exists
 from re import compile as re_compile
 from subprocess import PIPE, Popen
@@ -73,7 +74,7 @@ class Log8601Formatter(Formatter):
     def formatTime(self, record, datefmt=None):
         return "%s.%03d" % (
             strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created)),
-            int(record.msecs))
+            int(record.msecs * 1000))
 
 def setup_logging():
     global log
@@ -83,11 +84,15 @@ def setup_logging():
     log.setLevel(DEBUG)
     stderr_handler = StreamHandler(stderr)
     syslog_handler = SysLogHandler(address="/dev/log", facility=LOG_LOCAL1)
+    buildlog_handler = FileHandler(getenv("HOME") + "/build.log")
     stderr_handler.setFormatter(
         Log8601Formatter("%(asctime)s %(levelname)s: %(message)s"))
     syslog_handler.setFormatter(
         Log8601Formatter(progname + " %(asctime)s %(levelname)s: %(message)s"))
-    log.addHandler(MultiHandler([stderr_handler, syslog_handler]))
+    buildlog_handler.setFormatter(
+        Log8601Formatter(progname + " %(asctime)s %(levelname)s: %(message)s"))
+    log.addHandler(MultiHandler([stderr_handler, syslog_handler,
+                                 buildlog_handler]))
 
     getLogger("boto").setLevel(INFO)
     return

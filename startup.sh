@@ -31,6 +31,12 @@ file = /var/log/cloud-init-output.log
 log_group_name = syslog
 log_stream_name = {instance_id}
 datetime_format = %b %d %H:%M:%S
+
+[build-log]
+file = /home/builder/build.log
+log_group_name = buildlog
+log_stream_name = {instance_id}
+datetime_format = %Y-%m-%dT%H:%M:%S.%s
 EOF
         
         if [[ -e /var/log/messages ]]; then
