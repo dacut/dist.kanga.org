@@ -1,25 +1,20 @@
 #!/usr/bin/env python2.7
 from __future__ import absolute_import, print_function
+from boto.exception import S3ResponseError
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
+from kangadistutil import Distribution, get_os_version
 from logging import DEBUG, Formatter, getLogger, Handler, INFO, StreamHandler
 from logging.handlers import SysLogHandler
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
-from re import compile as re_compile
 from subprocess import PIPE, Popen
 from sys import stderr
 from syslog import LOG_LOCAL1
 from tempfile import gettempdir
 from time import strftime
 from urllib2 import urlopen
-
-id_regex = re_compile(r'^\s*ID=(?:"([^"]*)"|([^ ]*))\s*$')
-version_regex = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
-
-linux_dist = None
-dist_version = None
 
 class MultiHandler(Handler):
     """
@@ -45,62 +40,10 @@ class Log8601Formatter(Formatter):
             strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created)),
             int(record.msecs))
 
-def get_os_version():
-    """
-    get_os_version() -> (str, str)
-
-    Return the Linux distribution and version as a pair of strings.
-    """
-    global linux_dist, dist_version
-
-    if linux_dist is None or dist_version is None:
-        if not exists("/etc/os-release"):
-            raise ValueError("File /etc/os-release not found")
-
-        with open("/etc/os-release", "r") as fd:
-            for line in fd:
-                m = id_regex.match(line)
-                if m:
-                    if m.group(1):
-                        linux_dist = m.group(1)
-                    else:
-                        linux_dist = m.group(2)
-
-                m = version_regex.match(line)
-                if m:
-                    if m.group(1):
-                        dist_version = m.group(1)
-                    else:
-                        dist_version = m.group(2)
-
-        if not linux_dist:
-            raise ValueError("Failed to find ID=... line in /etc/os-release")
-
-        if not dist_version:
-            raise ValueError("Failed to find VERSION=... line in "
-                             "/etc/os-release")
-
-    return (linux_dist, dist_version)
-
-class Package(object):
+class Package(Distribution):
     """
     Build orchestration for a single package.
     """
-
-    s3_region = "us-west-2"
-    bucket_name = "dist.kanga.org"
-    os_prefixes = {
-        'amzn': "AmazonLinux",
-        'fedora': "Fedora",
-        'rhel': "RHEL",
-        'ubuntu': "Ubuntu",
-    }
-    dist_suffixes = {
-        'amzn': {
-            "2014.09": ".amzn1",
-            "2015.03": ".amzn1",
-        },
-    }
 
     def __init__(self, name, version):
         """
@@ -113,7 +56,7 @@ class Package(object):
         self.version = version
         self.last_build = None
         self.last_package = None
-        self.linux_dist, self.dist_version = get_os_version()
+        self.last_source = None
 
         if self.linux_dist in ("amzn", "fedora", "rhel"):
             self.get_latest = self.get_latest_rpm
@@ -128,11 +71,6 @@ class Package(object):
         else:
             raise NotImplementedError(
                 "Cannot build for distribution %r" % linux_dist)
-
-        self.os_prefix = self.os_prefixes[self.linux_dist]
-        self.dist_suffix = self.dist_suffixes.get(self.linux_dist, "")
-        if isinstance(self.dist_suffix, dict):
-            self.dist_suffix = self.dist_suffix.get(self.dist_version, "")
 
         self.binary_s3_prefix = (
             self.os_prefix + "/" + self.dist_version + "/RPMS/x86_64/")
@@ -156,8 +94,8 @@ class Package(object):
         Create RPM and SRPM packages for RedHat and variants.
         """
         spec_data = {}
-        spec_file_in = "SPECS/%s.spec.%s.in" % (self.name, linux_dist)
-        spec_file_out = "SPECS/%s.spec.%s" % (self.name, linux_dist)
+        spec_file_in = "SPECS/%s.spec.%s.in" % (self.name, self.linux_dist)
+        spec_file_out = "SPECS/%s.spec.%s" % (self.name, self.linux_dist)
 
         if self.last_build is None:
             self.build = 0
@@ -192,15 +130,16 @@ class Package(object):
             self.download(source, dest)
             source_id += 1
 
-        # Get the RPM name
-        self.rpm_name = (
-            spec_data.get("Name").strip() + "-" +
-            spec_data.get("Version").strip() + "-" +
-            spec_data.get("Release").strip() + ".x86_64.rpm")
-        self.rpm_name = self.rpm_name.replace(
-            "%{kanga_build}", str(self.build))
-        self.rpm_name = self.rpm_name.replace("%{dist}", self.dist_suffix)
-        
+        # Set the RPM and SRPM names
+        name = spec_data.get("Name").strip()
+        version = spec_data.get("Version").strip()
+        release = (spec_data.get("Release").strip()
+                   .replace("%{kanga_build}", str(self.build))
+                   .replace("%{dist}", self.dist_suffix))
+
+        self.rpm_name = "%s-%s-%s.x86_64.rpm" % (name, version, release)
+        self.srpm_name = "%s-%s-%s.src.rpm" % (name, version, release)
+
         # Install any necessary package prerequisites
         pkg_list = spec_data.get("BuildRequires", "").strip().split()
         self.invoke("sudo", "yum", "-y", "install", *pkg_list)
@@ -233,16 +172,31 @@ class Package(object):
             log.debug("Candidate found: %s", rpm_candidate)
 
         if self.last_build is not None:
-            if not exists ("RPMS/x86_64"):
+            if not exists("RPMS/x86_64"):
                 makedirs("RPMS/x86_64")
             filename = "RPMS/x86_64/" + last_key.name.rsplit("/", 1)[1]
             log.debug("Retrieving %s", last_key.name)
             last_key.get_contents_to_filename(filename)
             self.last_package = filename
             log.debug("Last build downloaded to %s", filename)
+
+            # Attempt to download the SRPM too
+            if not exists("SRPMS"):
+                makedirs("SRPMS")
+            srpm_name = "%s-%s-%d%s.src.rpm" % (
+                self.name, self.version, self.last_build, self.dist_suffix)
+            srpm_key = self.bucket.new_key(self.source_s3_prefix + srpm_name)
+            filename = "SRPMS/" + srpm_name
+
+            log.debug("Attempting to retrieve SRPM %s", srpm_key.name)
+            try:
+                srpm_key.get_contents_to_filename(filename)
+                self.last_source = filename
+            except S3ResponseError as e:
+                log.debug("SRPM not found: %s", e)
         else:
             log.debug("No previous builds found.")
-            
+
         return
 
     def has_diffs_rpm(self):
@@ -253,23 +207,33 @@ class Package(object):
         latest RPM.  If the latest RPM isn't available, this is always
         True.
         """
-        if self.last_package is None:
+        if self.last_package is None or self.last_source is None:
             return True
 
-        return self.diff_rpm(self.last_package, "RPMS/x86_64/" + self.rpm_name)
+        return (
+            self.diff_rpm(self.last_package, "RPMS/x86_64/" + self.rpm_name) or
+            self.diff_rpm(self.last_source, "SRPMS/" + self.srpm_name,
+                          ignore_spec=True))
 
     def upload_rpm(self):
         """
         pkg.upload_rpm()
 
-        Upload the RPM and SRPM packages if they differ from the latest
-        version.
+        Upload the RPM and SRPM packages.
         """
         key_name = self.binary_s3_prefix + self.rpm_name
         key = self.bucket.new_key(key_name)
         key.set_contents_from_filename(
             "RPMS/x86_64/" + self.rpm_name, reduced_redundancy=True,
             policy='public-read')
+
+        key_name = self.source_s3_prefix + self.srpm_name
+        key = self.bucket.new_key(key_name)
+        key.set_contents_from_filename(
+            "SRPMS/" + self.srpm_name, reduced_redundancy=True,
+            policy='public-read')
+
+        return
 
     def invoke(self, *cmd, **kw):
         """
@@ -342,7 +306,7 @@ class Package(object):
         return results
 
     @classmethod
-    def diff_rpm(cls, rpm_filename_1, rpm_filename_2):
+    def diff_rpm(cls, rpm_filename_1, rpm_filename_2, ignore_spec=False):
         """
         Package.diff_rpm(rpm_filename_1, rpm_filename_2) -> bool
 
@@ -424,6 +388,10 @@ class Package(object):
                 log.debug("File %s is missing from %s", filename,
                           rpm_filename_2)
                 return True
+
+            if ignore_spec and (
+                filename.endswith(".spec") or ".spec." in filename):
+                continue
 
             if (metadata1[:2] != metadata2[:2] or
                 metadata1[3:] != metadata2[3:]):
