@@ -162,6 +162,7 @@ create-build-user () {
     cat > /etc/sudoers.d/builder <<EOF
 builder ALL=(ALL) NOPASSWD:ALL
 EOF
+    su -s /bin/sh - builder -c 'ln -s dist.kanga.org /home/builder/rpmbuild'
 }
 
 git-clone () {
@@ -180,6 +181,7 @@ EOF
 start-cloudwatch
 update-system
 install-required-packages
+fix-sudoers-tty
 create-build-user
 git-clone
 schedule-repository-build
