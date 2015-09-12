@@ -41,9 +41,9 @@ class MultiHandler(Handler):
 
 class Log8601Formatter(Formatter):
     def formatTime(self, record, datefmt=None):
-        return "%s.%s" % (
+        return "%s.%03d" % (
             strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created)),
-            record.msecs)
+            int(record.msecs))
 
 def get_os_version():
     """
@@ -471,10 +471,11 @@ if __name__ == "__main__":
     log = getLogger()
     log.setLevel(DEBUG)
     stderr_handler = StreamHandler(stderr)
-    syslog_handler = SysLogHandler(facility=LOG_LOCAL1)
-    formatter = Log8601Formatter("%(asctime)s %(levelname)s: %(message)s")
-    stderr_handler.setFormatter(formatter)
-    syslog_handler.setFormatter(formatter)
+    syslog_handler = SysLogHandler(address="/dev/log", facility=LOG_LOCAL1)
+    stderr_handler.setFormatter(
+        Log8601Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    syslog_handler.setFormatter(
+        Log8601Formatter("localbuild.py %(asctime)s %(levelname)s: %(message)s"))
     log.addHandler(MultiHandler([stderr_handler, syslog_handler]))
 
     getLogger("boto").setLevel(INFO)
