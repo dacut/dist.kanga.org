@@ -4,41 +4,11 @@ from boto.exception import S3ResponseError
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
-from kangadistutil import Distribution
-from logging import DEBUG, Formatter, getLogger, Handler, INFO, StreamHandler
-from logging.handlers import SysLogHandler
+from kangadistutil import Distribution, invoke, log
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
-from subprocess import PIPE, Popen
-from sys import stderr
-from syslog import LOG_LOCAL1
 from tempfile import gettempdir
-from time import strftime
 from urllib2 import urlopen
-
-class MultiHandler(Handler):
-    """
-    Send log events to multiple handlers.
-    """
-    def __init__(self, handlers):
-        super(MultiHandler, self).__init__()
-        self.handlers = handlers
-        return
-
-    def emit(self, record):
-        for handler in self.handlers:
-            handler.emit(record)
-        return
-
-    def flush(self):
-        for handler in self.handlers:
-            handler.flush()
-
-class Log8601Formatter(Formatter):
-    def formatTime(self, record, datefmt=None):
-        return "%s.%03d" % (
-            strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created)),
-            int(record.msecs))
 
 class Package(Distribution):
     """
@@ -72,10 +42,8 @@ class Package(Distribution):
             raise NotImplementedError(
                 "Cannot build for distribution %r" % linux_dist)
 
-        self.binary_s3_prefix = (
-            self.os_prefix + "/" + self.dist_version + "/RPMS/x86_64/")
-        self.source_s3_prefix = (
-            self.os_prefix + "/" + self.dist_version + "/SRPMS/")
+        self.binary_s3_prefix = self.dist_prefix + "RPMS/x86_64/"
+        self.source_s3_prefix = self.dist_prefix + "SRPMS/"
 
         # Boto can't handle dots in bucket names (certificate validation
         # issues with TLS), so we have to use the older calling format.
@@ -142,9 +110,8 @@ class Package(Distribution):
 
         # Install any necessary package prerequisites
         pkg_list = spec_data.get("BuildRequires", "").strip().split()
-        self.invoke("sudo", "yum", "-y", "install", *pkg_list)
-
-        self.invoke("rpmbuild", "-ba", spec_file_out)
+        invoke("sudo", "yum", "-y", "install", *pkg_list)
+        invoke("rpmbuild", "-ba", spec_file_out)
 
     def get_latest_rpm(self):
         """
@@ -234,40 +201,6 @@ class Package(Distribution):
             policy='public-read')
 
         return
-
-    def invoke(self, *cmd, **kw):
-        """
-        pkg.invoke(*cmd)
-
-        Invoke a command, logging stdout and stderr to syslog 
-        """
-        log.info("Invoking %r", cmd)
-        proc = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-        out, err = proc.communicate()
-
-        out = out.strip()
-        if out:
-            log.info("stdout:")
-            for line in out.split("\n"):
-                log.info("%s", line)
-        err = err.strip()
-        if err:
-            log.warning("stderr:")
-            for line in err.split("\n"):
-                log.warning("%s", line)
-
-        if proc.returncode != 0:
-            if not kw.get("error_ok", False):
-                msg = ("Failed to invoke %r: exit code %d" %
-                       (cmd, proc.returncode))
-                log.error(msg)
-                raise RuntimeError(msg)
-            else:
-                msg = ("Invocation of %r resulted in non-zero exit code %d" %
-                       (cmd, proc.returncode))
-                log.info(msg)
-
-        return (proc.returncode == 0)
 
     def download(self, source, dest):
         """
@@ -436,15 +369,4 @@ def main():
         log.info("localbuild.py succeeded")
 
 if __name__ == "__main__":
-    log = getLogger()
-    log.setLevel(DEBUG)
-    stderr_handler = StreamHandler(stderr)
-    syslog_handler = SysLogHandler(address="/dev/log", facility=LOG_LOCAL1)
-    stderr_handler.setFormatter(
-        Log8601Formatter("%(asctime)s %(levelname)s: %(message)s"))
-    syslog_handler.setFormatter(
-        Log8601Formatter("localbuild.py %(asctime)s %(levelname)s: %(message)s"))
-    log.addHandler(MultiHandler([stderr_handler, syslog_handler]))
-
-    getLogger("boto").setLevel(INFO)
     main()
