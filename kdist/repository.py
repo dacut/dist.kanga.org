@@ -2,12 +2,14 @@
 from __future__ import absolute_import, print_function
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
-from kangadistutil import Distribution, invoke, log
 from os import listdir, makedirs
 from os.path import basename, exists
 from shutil import rmtree
 from sys import exit
 from tempfile import mkdtemp
+from .distribution import Distribution
+from .logging import log
+from .platform import invoke
 
 class Repository(Distribution):
     s3_region = "us-west-2"
@@ -66,19 +68,17 @@ class Repository(Distribution):
         log.info("Repository database upload completed")
         return
         
-def main():
-    log.info("Invoking repoupdate.py")
+def repoupdate():
+    log.info("Invoking repoupdate")
     try:
         repo = Repository()
         repo.download_contents()
         repo.update_repo_database()
         repo.upload_repo_database()
     except Exception as e:
-        log.error("repoupdate.py failed", exc_info=True)
+        log.error("repoupdate failed", exc_info=True)
         return 1
     else:
-        log.info("repoupdate.py succeeded")
+        log.info("repoupdate succeeded")
         return 0
 
-if __name__ == "__main__":
-    exit(main())
