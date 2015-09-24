@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from os import getenv
-from os.path import basename
+from os.path import basename, exists
 from logging import (
     DEBUG, FileHandler, Formatter, getLogger, Handler, INFO, StreamHandler)
 from logging.handlers import SysLogHandler
@@ -39,17 +39,28 @@ def setup_logging():
     progname = basename(argv[0])
     log = getLogger()
     log.setLevel(DEBUG)
-    stderr_handler = StreamHandler(stderr)
-    syslog_handler = SysLogHandler(address="/dev/log", facility=LOG_LOCAL1)
+
+    handlers = []
     buildlog_handler = FileHandler(getenv("HOME") + "/build.log")
-    stderr_handler.setFormatter(
-        Log8601Formatter("%(asctime)s %(levelname)s: %(message)s"))
-    syslog_handler.setFormatter(
-        Log8601Formatter(progname + " %(asctime)s %(levelname)s: %(message)s"))
     buildlog_handler.setFormatter(
         Log8601Formatter(progname + " %(asctime)s %(levelname)s: %(message)s"))
-    log.addHandler(MultiHandler([stderr_handler, syslog_handler,
-                                 buildlog_handler]))
+    handlers.append(buildlog_handler)
+
+    stderr_handler = StreamHandler(stderr)
+    stderr_handler.setFormatter(
+        Log8601Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    handlers.append(stderr_handler)
+    
+    if exists("/dev/log"):
+        syslog_handler = SysLogHandler(
+            address="/dev/log", facility=LOG_LOCAL1)
+        syslog_handler.setFormatter(
+            Log8601Formatter(progname +
+                             " %(asctime)s %(levelname)s: %(message)s"))
+        handlers.append(syslog_handler)
+
+
+    log.addHandler(MultiHandler(handlers))
 
     getLogger("boto").setLevel(INFO)
     return

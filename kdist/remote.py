@@ -31,7 +31,6 @@ class Builder(object):
         self.virtualization_type = virtualization_type
         self.root_size = root_size
         self.region = region
-        self.log = logging.getLogger("builder")
         return
 
     @property
@@ -95,8 +94,8 @@ class Builder(object):
             {"Name": "Dist Build",
              "OS": os_id + " " + version})
 
-        self.log.info("Launched %s %s with instance id %s", os_id, version,
-                      reservation.instances[0].id)
+        log.info("Launched %s %s with instance id %s", os_id, version,
+                 reservation.instances[0].id)
         return
 
     def build_all(self):
@@ -121,7 +120,7 @@ def parse_remotebuild_option(builder, opt, value):
                "security-groups"):
         builder.security_groups.extend(value.split(","))
     elif opt in ("-h", "--help"):
-        usage(stdout)
+        remotebuild_usage(stdout)
         raise StopIteration()
     elif opt in ("-k", "--key-name", "--keyname", "--key", "key-name",
                  "key"):
@@ -163,7 +162,7 @@ def remotebuild():
                              "volume-size="])
     except GetoptError as e:
         print(str(e), file=stderr)
-        usage()
+        remotebuild_usage()
         return 1
 
     for opt, value in opts:
@@ -179,7 +178,7 @@ def remotebuild():
                 return 0
             except ValueError as e:
                 print(str(e), file=stderr)
-                usage()
+                remotebuild_usage()
                 return 1
 
     if len(builder.os_ids) == 0:
