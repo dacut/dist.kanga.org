@@ -9,8 +9,9 @@ setup(
     packages=['kdist'],
     entry_points=dict(
         console_scripts=[
-            "kdist-repoupdate=kdist.repository:repoupdate",
             "kdist-genindexes=kdist.index:genindexes",
+            "kdist-localbuild=kdist.package:localbuild",
+            "kdist-repoupdate=kdist.repository:repoupdate",
         ]
     ),
 )

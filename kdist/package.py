@@ -1,15 +1,18 @@
-#!/usr/bin/env python2.7
-from __future__ import absolute_import, print_function
+#!/usr/bin/env python
+from __future__ import absolute_import, division, print_function
 from boto.exception import S3ResponseError
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
-from kangadistutil import Distribution, invoke, log
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
 from sys import exit
 from tempfile import gettempdir
 from urllib2 import urlopen
+
+from .distribution import Distribution
+from .logging import log
+from .platform import invoke
 
 class Package(Distribution):
     """
@@ -344,8 +347,8 @@ class Package(Distribution):
         # RPMs are equivalent.
         return False
 
-def main():
-    log.info("Invoking localbuild.py")
+def localbuild():
+    log.info("Invoking localbuild")
     try:
         for package in Package.get_packages():
             log.info("Building %s-%s", package.name, package.version)
@@ -365,10 +368,10 @@ def main():
                 log.info("Build %d is the same as previous build %d; skipping "
                          "upload.", package.build, package.last_build)
     except Exception as e:
-        log.error("localbuild.py failed", exc_info=True)
+        log.error("localbuild failed", exc_info=True)
         return 1
     else:
-        log.info("localbuild.py succeeded")
+        log.info("localbuild succeeded")
         return 0
 
 if __name__ == "__main__":

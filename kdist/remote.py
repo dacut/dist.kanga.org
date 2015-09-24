@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from __future__ import absolute_import, print_function
+from __future__ import absolute_import, division, print_function
 from base64 import b64encode
 import boto.ec2
 from boto.ec2.blockdevicemapping import BlockDeviceMapping, BlockDeviceType
@@ -7,12 +7,15 @@ from boto.ec2.networkinterface import (
     NetworkInterfaceCollection, NetworkInterfaceSpecification)
 from csv import reader as csv_reader
 from getopt import getopt, GetoptError
-import logging
 from os.path import dirname
 from six.moves.configparser import RawConfigParser
 from sys import argv, exit, stderr, stdout
 
+from .logging import log
+
 class Builder(object):
+    _ami_map = None
+
     def __init__(self, subnet_id=None, key_name=None, security_groups=[],
                  os_ids=[], instance_type='t2.micro', profile=None,
                  instance_profile_name=None, virtualization_type='hvm',
@@ -39,9 +42,21 @@ class Builder(object):
                 self.region, profile_name=self.profile)
         return ec2
 
+    @property
+    def ami_map(self):
+        if self._ami_map is None:
+            self.create_ami_map()
+        return self._ami_map
+
+    @property
+    def startup_script(self):
+        if self._startup_script is None:
+            self.create_startup_script()
+        return self._startup_script
+
     @classmethod
     def create_ami_map(cls):
-        cls.ami_map = {}
+        cls._ami_map = {}
         with open(dirname(__file__) + "/ami_map.csv", "r") as fd:
             reader = csv_reader(fd, dialect='excel-tab')
             header = reader.next()
@@ -50,13 +65,13 @@ class Builder(object):
                 data = dict(zip(header, row))
                 key = (data['os_id'], data['version'], data['region'],
                        data['virtualization_type'])
-                cls.ami_map[key] = data['ami_id']
+                cls._ami_map[key] = data['ami_id']
         return
 
     @classmethod
     def create_startup_script(cls):
         with open(dirname(__file__) + "/startup.sh", "r") as fd:
-            cls.startup = b64encode(fd.read())
+            cls._startup = b64encode(fd.read())
 
     def build_os(self, os_id, version):
         ami_id = self.ami_map[(os_id, version, self.region,
@@ -71,7 +86,7 @@ class Builder(object):
         nic = NetworkInterfaceCollection(eth0)
 
         reservation = self.ec2.run_instances(
-            ami_id, key_name=self.key_name, user_data=self.startup,
+            ami_id, key_name=self.key_name, user_data=self.startup_script,
             instance_type=self.instance_type, block_device_map=bdm,
             instance_profile_name=self.instance_profile_name,
             network_interfaces=nic)
@@ -92,40 +107,6 @@ class Builder(object):
             os_id, version = osver.split("-", 1)
             self.build_os(os_id, version)
 
-    def parse_option(self, opt, value):
-        if opt in ("-g", "--security-group", "--security-groups",
-                   "--securitygroup", "--securitygroups", "security-group",
-                   "security-groups"):
-            self.security_groups.extend(value.split(","))
-        elif opt in ("-h", "--help"):
-            usage(stdout)
-            raise StopIteration()
-        elif opt in ("-k", "--key-name", "--keyname", "--key", "key-name",
-                     "key"):
-            self.key_name = value
-        elif opt in ("-i", "--instance-profile-name", "--instance-profile",
-                     "--instnaceprofilename", "--instanceprofile",
-                     "instance-profile-name", "instance-profile",
-                     "instanceprofile"):
-            self.instance_profile_name = value
-        elif opt in ("-o", "--os", "os"):
-            self.os_ids.extend(value.split(","))
-        elif opt in ("-p", "--profile", "profile"):
-            self.profile = value
-        elif opt in ("-r", "--region", "region"):
-            self.region = value
-        elif opt in ("-s", "--subnet-id", "--subnet", "subnet-id", "subnet"):
-            self.subnet_id = value
-        elif opt in ("-V", "--volume-size", "volume-size"):
-            try:
-                self.volume_size = int(value)
-            except ValueError:
-                raise ValueError("Invalid volume size %r" % value)
-        else:
-            raise ValueError("Invalid key %r" % opt)
-                
-        return
-
     def __repr__(self):
         return ("Builder(subnet_id=%r, key_name=%r, security_groups=%r, "
                 "os_ids=%r, instance_type=%r, virtualization_type=%r, "
@@ -133,16 +114,46 @@ class Builder(object):
                 (self.subnet_id, self.key_name, self.security_groups,
                  self.os_ids, self.instance_type, self.virtualization_type,
                  self.root_size, self.region))
-                                              
 
-Builder.create_ami_map()
-Builder.create_startup_script()
+def parse_remotebuild_option(builder, opt, value):
+    if opt in ("-g", "--security-group", "--security-groups",
+               "--securitygroup", "--securitygroups", "security-group",
+               "security-groups"):
+        builder.security_groups.extend(value.split(","))
+    elif opt in ("-h", "--help"):
+        usage(stdout)
+        raise StopIteration()
+    elif opt in ("-k", "--key-name", "--keyname", "--key", "key-name",
+                 "key"):
+        builder.key_name = value
+    elif opt in ("-i", "--instance-profile-name", "--instance-profile",
+                 "--instnaceprofilename", "--instanceprofile",
+                 "instance-profile-name", "instance-profile",
+                 "instanceprofile"):
+        builder.instance_profile_name = value
+    elif opt in ("-o", "--os", "os"):
+        builder.os_ids.extend(value.split(","))
+    elif opt in ("-p", "--profile", "profile"):
+        builder.profile = value
+    elif opt in ("-r", "--region", "region"):
+        builder.region = value
+    elif opt in ("-s", "--subnet-id", "--subnet", "subnet-id", "subnet"):
+        builder.subnet_id = value
+    elif opt in ("-V", "--volume-size", "volume-size"):
+        try:
+            builder.volume_size = int(value)
+        except ValueError:
+            raise ValueError("Invalid volume size %r" % value)
+    else:
+        raise ValueError("Invalid key %r" % opt)
 
-def main(args):
+    return
+
+def remotebuild():
     builder = Builder()
 
     try:
-        opts, args = getopt(args, "c:g:hi:k:o:p:r:s:V:",
+        opts, args = getopt(argv[1:], "c:g:hi:k:o:p:r:s:V:",
                             ["config=", "security-group=", "security-groups=",
                              "securitygroup=", "securitygroups=", "help",
                              "instance-profile-name=", "instance-profile=",
@@ -160,10 +171,10 @@ def main(args):
             cp = RawConfigParser()
             cp.read([value])
             for opt, value in cp.items("dist.kanga.org"):
-                builder.parse_option(opt, value)
+                parse_remotebuild_option(builder, opt, value)
         else:
             try:
-                builder.parse_option(opt, value)
+                parse_remotebuild_option(builder, opt, value)
             except StopIteration:
                 return 0
             except ValueError as e:
@@ -179,7 +190,7 @@ def main(args):
 
     return 0
 
-def usage(fd=stderr):
+def remotebuild_usage(fd=stderr):
     fd.write("""\
 Usage: rebuild.py [options]
 
@@ -221,9 +232,11 @@ Options:
 """)
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        stream=stderr, level=logging.DEBUG,
-        format=("%(asctime)s %(filename)s %(lineno)d [%(levelname)s]: "
-                "%(message)s"))
-    logging.getLogger("boto").setLevel(logging.INFO)
-    exit(main(argv[1:]))
+    exit(remotebuild())
+
+# Local variables:
+# mode: Python
+# tab-width: 8
+# indent-tabs-mode: nil
+# End:
+# vi: set expandtab tabstop=8
