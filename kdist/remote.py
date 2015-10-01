@@ -14,8 +14,6 @@ from sys import argv, exit, stderr, stdout
 from .logging import log
 
 class Builder(object):
-    _ami_map = None
-
     def __init__(self, subnet_id=None, key_name=None, security_groups=[],
                  os_ids=[], instance_type='t2.micro', profile=None,
                  instance_profile_name=None, virtualization_type='hvm',
@@ -43,19 +41,21 @@ class Builder(object):
 
     @property
     def ami_map(self):
-        if self._ami_map is None:
-            self.create_ami_map()
-        return self._ami_map
+        ami_map = getattr(self, "_ami_map", None)
+        if ami_map is None:
+            ami_map = self._ami_map = self.load_ami_map()
+        return ami_map
 
     @property
     def startup_script(self):
-        if self._startup_script is None:
-            self.create_startup_script()
-        return self._startup_script
+        startup_script = getattr(self, "_startup_script", None)
+        if startup_script is None:
+            startup_script = self._startup_script = self.load_startup_script()
+        return startup_script
 
     @classmethod
-    def create_ami_map(cls):
-        cls._ami_map = {}
+    def load_ami_map(cls):
+        ami_map = {}
         with open(dirname(__file__) + "/ami_map.csv", "r") as fd:
             reader = csv_reader(fd, dialect='excel-tab')
             header = reader.next()
@@ -64,18 +64,21 @@ class Builder(object):
                 data = dict(zip(header, row))
                 key = (data['os_id'], data['version'], data['region'],
                        data['virtualization_type'])
-                cls._ami_map[key] = data['ami_id']
-        return
+                ami_map[key] = data['ami_id']
+        return ami_map
 
     @classmethod
-    def create_startup_script(cls):
+    def load_startup_script(cls):
         with open(dirname(__file__) + "/startup.sh", "r") as fd:
-            cls._startup = b64encode(fd.read())
+            return b64encode(fd.read())
 
     def build_os(self, os_id, version):
         ami_id = self.ami_map[(os_id, version, self.region,
                                self.virtualization_type)]
-        xvda = BlockDeviceType(size=self.root_size, delete_on_termination=True)
+        xvda = BlockDeviceType(
+            size=self.root_size,
+            delete_on_termination=True,
+            volume_type='gp2')
         bdm = BlockDeviceMapping()
         bdm['/dev/xvda'] = xvda
 
