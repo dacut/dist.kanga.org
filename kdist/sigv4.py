@@ -14,11 +14,14 @@ AWS4_HMAC_SHA256 = "AWS4-HMAC-SHA256"
 # Unreserved characters from RFC 3986.
 _rfc3986_unreserved = set(ascii_letters + digits + "-._~")
 
+# HTTP date format
+_http_date_format = "%a, %d %b %Y %H:%M:%S %Z"
+
 # Header and query string keys
-_authorization = "Authorization"
+_authorization = "authorization"
 _aws4_request = "aws4_request"
 _credential = "Credential"
-_date = "Date"
+_date = "date"
 _signature = "Signature"
 _signedheaders = "SignedHeaders"
 _x_amz_algorithm = "X-Amz-Algorithm"
@@ -38,6 +41,9 @@ _iso8601_timestamp_regex = re_compile(
     r"(?P<second>[0-5][0-9]|6[01])"
     r"Z$")
 
+# Match for multiple slashes
+_multislash = re_compile(r"//+")
+
 class InvalidSignatureError(StandardError):
     """
     An exception indicating that the signature on the request was invalid.
@@ -46,9 +52,9 @@ class InvalidSignatureError(StandardError):
 
 class AWSSigV4Verifier(object):
     def __init__(self, request_method, uri_path, query_string, headers,
-                 payload, region, service, key_mapping, timestamp_mismatch=60):
+                 body, region, service, key_mapping, timestamp_mismatch=60):
         """
-        AWSSigV4Verifier(request_method, uri_path, query_string, headers, payload, region, service, key_mapping, timestamp_mismatch=60)
+        AWSSigV4Verifier(request_method, uri_path, query_string, headers, body, region, service, key_mapping, timestamp_mismatch=60)
 
         Create a new AWSSigV4Verifier instance.
         """
@@ -57,7 +63,7 @@ class AWSSigV4Verifier(object):
         self.uri_path = uri_path
         self.query_string = query_string
         self.headers = headers
-        self.payload = payload
+        self.body = body
         self.region = region
         self.service = service
         self.key_mapping = key_mapping
@@ -77,6 +83,10 @@ class AWSSigV4Verifier(object):
 
     @property
     def query_parameters(self):
+        """
+        A key to list of values mapping of the query parameters seen in the
+        request.
+        """
         result = getattr(self, "_query_parameters", None)
         if result is None:
             result = self._query_parameters = normalize_query_parameters(
@@ -91,10 +101,16 @@ class AWSSigV4Verifier(object):
         This takes the query string from the request and orders the parameters
         in 
         """
-        return "&".join(
-            sorted(["%s=%s" % (key, value)
-                    for key, value in self.query_parameters
-                    if key != _x_amz_signature]))
+        results = []
+        for key, values in self.query_parameters.iteritems():
+            # Don't include the signature itself.
+            if key == _x_amz_signature:
+                continue
+            
+            for value in values:
+                results.append("%s=%s" % (key, value))
+            
+        return "&".join(sorted(results))
 
     @property
     def authorization_header_parameters(self):
@@ -136,7 +152,7 @@ class AWSSigV4Verifier(object):
         An ordered dictionary containing the signed header names and values.
         """
         # See if the signed headers are listed in the query string
-        signed_headers = self.query_parameters.get(_x_amz_signed_headers)
+        signed_headers = self.query_parameters.get(_x_amz_signedheaders)
         if signed_headers is None:
             # Get this from the authentication header
             signed_headers = self.authorization_header_parameters[
@@ -147,9 +163,10 @@ class AWSSigV4Verifier(object):
 
         # Make sure the signed headers list is canonicalized.  For security
         # reasons, we consider it an error if it isn't.
-        if parts != sorted([sh.lower() for sh in signed_headers]):
-            raise AttributeError("SignedHeaders is not canonicalized: %r" %
-                                 signed_headers)
+        canonicalized = sorted([sh.lower() for sh in parts])
+        if parts != canonicalized:
+            raise AttributeError("SignedHeaders is not canonicalized: %r (%r vs %r)" %
+                                 (signed_headers, parts, canonicalized))
 
         # Allow iteration in-order.
         return OrderedDict([(header, self.headers[header])
@@ -179,12 +196,19 @@ class AWSSigV4Verifier(object):
         if amz_date is None:
             amz_date = self.headers.get(_x_amz_date)
             if amz_date is None:
-                amz_date = self.headers.get(_date)
-                if amz_date is None:
+                date = self.headers.get(_date)
+                if date is None:
                     raise AttributeError("Date was not passed in the request")
+
+                if _iso8601_timestamp_regex.match(date):
+                    amz_date = date
+                else:
+                    # Parse this as an HTTP date and reformulate it.
+                    amz_date = (datetime.strptime(date, _http_date_format)
+                                .strftime("%Y%m%dT%H%M%SZ"))
         if not _iso8601_timestamp_regex.match(amz_date):
             raise AttributeError("X-Amz-Date parameter is not a valid ISO8601 "
-                                 "string")
+                                 "string: %r" % amz_date)
 
         return amz_date
 
@@ -246,21 +270,27 @@ class AWSSigV4Verifier(object):
             canonical_uri_path + '\n' +
             canonical_query_string + '\n' +
             signed_headers + '\n' +
-            sha256(payload).hexdigest()
+            sha256(body).hexdigest()
         """
+        signed_headers = self.signed_headers
+        header_lines = "".join(
+            ["%s:%s\n" % item for item in signed_headers.iteritems()])
+        header_keys = ";".join([key for key in self.signed_headers.iterkeys()])
+        
         return (self.request_method + "\n" +
                 self.canonical_uri_path + "\n" +
                 self.canonical_query_string + "\n" +
-                self.signed_headers + "\n" +
-                sha256(self.payload).hexdigest())
+                header_lines + "\n" +
+                header_keys + "\n" +
+                sha256(self.body).hexdigest())
 
     @property
     def string_to_sign(self):
         """
         The AWS SigV4 string being signed.
         """
-        return (AWS_HMAC_SHA256 + "\n" +
-                self.request_date + "\n" +
+        return (AWS4_HMAC_SHA256 + "\n" +
+                self.request_timestamp + "\n" +
                 self.credential_scope + "\n" +
                 sha256(self.canonical_request).hexdigest())
 
@@ -284,22 +314,23 @@ class AWSSigV4Verifier(object):
         expectations.
         """
         try:
-            m = _iso8601_timestamp_regex.match(self.request_timestamp)
-            year = int(m.group("year"))
-            month = int(m.group("month"))
-            day = int(m.group("day"))
-            hour = int(m.group("hour"))
-            minute = int(m.group("minute"))
-            second = int(m.group("second"))
+            if self.timestamp_mismatch is not None:
+                m = _iso8601_timestamp_regex.match(self.request_timestamp)
+                year = int(m.group("year"))
+                month = int(m.group("month"))
+                day = int(m.group("day"))
+                hour = int(m.group("hour"))
+                minute = int(m.group("minute"))
+                second = int(m.group("second"))
 
-            req_ts = datetime(year, month, day, hour, minute, second)
-            now = datetime.utcnow()
+                req_ts = datetime(year, month, day, hour, minute, second)
+                now = datetime.utcnow()
 
-            if abs(req_ts - now) > timedelta(0, self.timestamp_mismatch):
-                raise InvalidSignatureError("Timestamp mismatch")
+                if abs(req_ts - now) > timedelta(0, self.timestamp_mismatch):
+                    raise InvalidSignatureError("Timestamp mismatch")
 
-                if self.expected_signature != self.request_signature:
-                    raise InvalidSignatureError("Signature mismatch")
+            if self.expected_signature != self.request_signature:
+                raise InvalidSignatureError("Signature mismatch")
         except (AttributeError, KeyError, ValueError) as e:
             raise InvalidSignatureError(str(e))
 
@@ -395,9 +426,10 @@ def normalize_uri_path_component(path_component):
     * Percent-encoded values in the unreserved space (%41-%5A, %61-%7A,
       %30-%39, %2D, %2E, %5F, %7E) are converted to normal characters.
 
-    A ValueError exception is thrown if:
-    * A percent encoding includes non-hex characters (e.g. %3z)
-    * A percent encoding is incomplete (e.g. %7)
+    If a percent encoding is incomplete, the percent is encoded as %25.
+
+    A ValueError exception is thrown if a percent encoding includes non-hex
+    characters (e.g. %3z).
     """
     result = cStringIO()
 
@@ -405,11 +437,13 @@ def normalize_uri_path_component(path_component):
     while i < len(path_component):
         c = path_component[i]
         if c in _rfc3986_unreserved:
-            result.append(c)
+            result.write(c)
             i += 1
         elif c == "%":
             if i + 2 >= len(path_component):
-                raise ValueError("Incomplete %% encoding at position %d" % i)
+                result.write("%25")
+                i += 1
+                continue
             try:
                 value = int(path_component[i+1:i+3], 16)
             except ValueError:
@@ -417,17 +451,17 @@ def normalize_uri_path_component(path_component):
             
             c = chr(value)
             if c in _rfc3986_unreserved:
-                result.append(c)
+                result.write(c)
             else:
-                result.append("%%%02X" % value)
+                result.write("%%%02X" % value)
             
             i += 3
         elif c == "+":
             # Plus-encoded space.  Convert this to %20.
-            result.append("%20")
+            result.write("%20")
             i += 1
         else:
-            result.append("%%%02X" % ord(c))
+            result.write("%%%02X" % ord(c))
             i += 1
     
     return result.getvalue()
@@ -452,16 +486,20 @@ def get_canonical_uri_path(uri_path):
     if not uri_path.startswith("/"):
         raise ValueError("URI path is not absolute.")
 
+    # Replace double slashes; this makes it easier to handle slashes at the
+    # end.
+    uri_path = _multislash.sub("/", uri_path)
+    
     # Examine each path component for relative directories.
     components = uri_path.split("/")[1:]
     i = 0
     while i < len(components):
         # Fix % encodings.
         component = normalize_uri_path_component(components[i])
-        component[i] = component
+        components[i] = component
         
-        if components[i] == "." or components[i] == "":
-            # Relative current directory or redundant slash.  Remove this.
+        if components[i] == ".":
+            # Relative current directory.  Remove this.
             del components[i]
 
             # Don't increment i; with the deletion, we're now pointing to
@@ -500,11 +538,11 @@ def normalize_query_parameters(query_string):
     query string follows % encoding rules according to RFC 3986 and checks
     for duplicate keys.
 
-    A ValueError exception is raised if:
-    * A percent encoding is invalid.
-    * A parameter name is not followed by an "=" (required even if the value
-      is empty).
+    A ValueError exception is raised if a percent encoding is invalid.
     """
+    if query_string == "":
+        return {}
+
     components = query_string.split("&")
     result = {}
 
@@ -512,7 +550,8 @@ def normalize_query_parameters(query_string):
         try:
             key, value = component.split("=", 1)
         except ValueError:
-            raise ValueError("Query parameter %r missing '='" % component)
+            key = component
+            value = ""
 
         if component == "":
             # Empty component; skip it.
@@ -522,11 +561,12 @@ def normalize_query_parameters(query_string):
         value = normalize_uri_path_component(value)
 
         if key in result:
-            raise ValueError("Duplicate query parameter %r" % key)
-        
-        result[key] = value
+            result[key].append(value)
+        else:
+            result[key] = [value]
 
-    return result
+    return dict([(key, sorted(values))
+                 for key, values in result.iteritems()])
 
 
 

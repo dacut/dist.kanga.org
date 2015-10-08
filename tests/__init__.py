@@ -5,9 +5,6 @@ def suite():
     import tests.sigv4_test
 
     ts = TestSuite()
-    for module in [
-            tests.sigv4_test,
-    ]:
-        ts.addTest(loader.loadTestsFromModule(module))
+    ts.addTests(tests.sigv4_test.get_test_cases())
 
     return ts
