@@ -7,6 +7,7 @@ import hmac
 from re import compile as re_compile
 from six.moves import cStringIO
 from string import ascii_letters, digits
+from urllib import unquote as url_unquote
 
 # Algorithm for AWS SigV4
 AWS4_HMAC_SHA256 = "AWS4-HMAC-SHA256"
@@ -28,7 +29,7 @@ _x_amz_algorithm = "X-Amz-Algorithm"
 _x_amz_credential = "X-Amz-Credential"
 _x_amz_date = "X-Amz-Date"
 _x_amz_signature = "X-Amz-Signature"
-_x_amz_signedheaders = "X-Amz_SignedHeaders"
+_x_amz_signedheaders = "X-Amz-SignedHeaders"
 
 # ISO8601 timestamp format regex
 _iso8601_timestamp_regex = re_compile(
@@ -59,6 +60,21 @@ class AWSSigV4Verifier(object):
         Create a new AWSSigV4Verifier instance.
         """
         super(AWSSigV4Verifier, self).__init__()
+
+        l = locals()
+        # Verify string parameters
+        for param in ["request_method", "uri_path", "query_string", "body",
+                      "region", "service"]:
+            if not isinstance(l[param], basestring):
+                raise TypeError("Expected %s to be a string" % param)
+
+        for key, value in headers.iteritems():
+            if not isinstance(key, basestring):
+                raise TypeError("Invalid key in headers: %r" % key)
+
+            if not isinstance(value, basestring):
+                raise TypeError("Invalid value in headers: %r" % value)
+
         self.request_method = request_method
         self.uri_path = uri_path
         self.query_string = query_string
@@ -126,7 +142,7 @@ class AWSSigV4Verifier(object):
                 raise AttributeError("Authorization header is not present")
             
             if not auth.startswith(AWS4_HMAC_SHA256 + " "):
-                raise AttributeError("Authorizaiton header is not AWS SigV4")
+                raise AttributeError("Authorization header is not AWS SigV4")
 
             result = {}
             for parameter in auth[len(AWS4_HMAC_SHA256)+1:].split(","):
@@ -153,7 +169,9 @@ class AWSSigV4Verifier(object):
         """
         # See if the signed headers are listed in the query string
         signed_headers = self.query_parameters.get(_x_amz_signedheaders)
-        if signed_headers is None:
+        if signed_headers is not None:
+            signed_headers = url_unquote(signed_headers[0])
+        else:
             # Get this from the authentication header
             signed_headers = self.authorization_header_parameters[
                 _signedheaders]
@@ -165,8 +183,8 @@ class AWSSigV4Verifier(object):
         # reasons, we consider it an error if it isn't.
         canonicalized = sorted([sh.lower() for sh in parts])
         if parts != canonicalized:
-            raise AttributeError("SignedHeaders is not canonicalized: %r (%r vs %r)" %
-                                 (signed_headers, parts, canonicalized))
+            raise AttributeError("SignedHeaders is not canonicalized: %r" %
+                                 (signed_headers,))
 
         # Allow iteration in-order.
         return OrderedDict([(header, self.headers[header])
@@ -193,15 +211,19 @@ class AWSSigV4Verifier(object):
         is raised.
         """
         amz_date = self.query_parameters.get(_x_amz_date)
-        if amz_date is None:
+        if amz_date is not None:
+            amz_date = amz_date[0]
+        else:
             amz_date = self.headers.get(_x_amz_date)
             if amz_date is None:
                 date = self.headers.get(_date)
                 if date is None:
                     raise AttributeError("Date was not passed in the request")
 
+                # This isn't really valid -- seems to be a bug in the AWS
+                # documentation.
                 if _iso8601_timestamp_regex.match(date):
-                    amz_date = date
+                    amz_date = date # pragma: nocover
                 else:
                     # Parse this as an HTTP date and reformulate it.
                     amz_date = (datetime.strptime(date, _http_date_format)
@@ -229,16 +251,17 @@ class AWSSigV4Verifier(object):
         an AttributeError exception is raised.
         """
         credential = self.query_parameters.get(_x_amz_credential)
-        if credential is None:
+        if credential is not None:
+            credential = url_unquote(credential[0])
+        else:
             credential = self.authorization_header_parameters.get(_credential)
 
             if credential is None:
                 raise AttributeError("Credential was not passed in the request")
-
         try:
             key, scope = credential.split("/", 1)
         except ValueError:
-            raise AttributeError("Invalid request credential")
+            raise AttributeError("Invalid request credential: %r" % credential)
 
         if scope != self.credential_scope:
             raise AttributeError("Incorrect credential scope")
@@ -251,7 +274,9 @@ class AWSSigV4Verifier(object):
         The signature passed in the request.
         """
         signature = self.query_parameters.get(_x_amz_signature)
-        if signature is None:
+        if signature is not None:
+            signature = signature[0]
+        else:
             signature = self.authorization_header_parameters.get(_signature)
             if signature is None:
                 raise AttributeError("Signature was not passed in the request")
@@ -330,88 +355,13 @@ class AWSSigV4Verifier(object):
                     raise InvalidSignatureError("Timestamp mismatch")
 
             if self.expected_signature != self.request_signature:
-                raise InvalidSignatureError("Signature mismatch")
+                raise InvalidSignatureError(
+                    "Signature mismatch: expected %r, got %r" % (
+                        self.expected_signature, self.request_signature))
         except (AttributeError, KeyError, ValueError) as e:
             raise InvalidSignatureError(str(e))
 
         return True
-
-def get_sigv4_authentication_parameters(request):
-    """
-    get_sigv4_authentication_parameters(request) -> dict
-
-    Examine the HTTP Authorization header and parse out individual AWS
-    SigV4 parameters.  SignedHeaders is split into a list.
-
-    For example:
-    Authorization: AWS4-HMAC-SHA256 Credential=A/1/bar, SignedHeaders=bar;baz;foo, Signature=xyz
-
-    becomes:
-
-    {
-        "Credential": "A/1/bar",
-        "SignedHeaders": ["bar", "baz", "foo"],
-        "Signature": "xyz",
-    }
-
-    A ValueError exception is raised if:
-
-    * An Authorization header is not present in the request.
-    * The header is not an AWS SigV4 header.
-    * The Credential, SignedHeaders, or Signature parameters are missing.
-    * The SignedHeaders parameter is not sorted and lower-cased.
-    * The SignedHeaders parameter is missing "host".
-    * The SignedHeaders parameter does not include either "date" or
-      "x-amz-date".
-    * The SignedHeaders are not sorted and lower-cased.
-    * A parameter is duplicated.
-    """
-    auth = request.headers.get("Authorization")
-    if auth is None:
-        raise ValueError(
-            "Request does not contain an Authorization header")
-
-    if not auth.startswith(AWS4_HMAC_SHA256 + " "):
-        raise ValueError(
-            "Request is not signed using AWS4-HMAC-SHA256")
-
-    result = {}
-
-    # Parameters are key=value format, separated by commas and optional
-    # whitespace.
-    auth_params = auth[len(AWS4_HMAC_SHA256) + 1:].split(",")
-    for auth_param in auth_params:
-        auth_param = auth_param.strip()
-        name, value = auth_param.split("=", 1)
-
-        # For SignedHeaders, we split the semicolon-separated header names up.
-        if name == "SignedHeaders":
-            value = value.split(";")
-
-            # Make sure the signed headers are properly sorted and lower-cased.
-            if value != sorted([x.lower() for x in value]):
-                raise ValueError("SignedHeaders is not sorted or lower-cased")
-
-            if "host" not in value:
-                raise ValueError("SignedHeaders does not include 'host'")
-            
-            if "date" not in value and "x-amz-date" not in value:
-                raise ValueError("SignedHeaders does not include 'date' or "
-                                 "'x-amz-date'")
-
-        # Don't allow duplicates (in case an attacker has somehow appended
-        # to the request in flight).
-        if name in result:
-            raise ValueError("Duplicate auth parameter %r" % name)
-
-        result[name] = value
-
-    # Make sure required fields are present.
-    for required_field in ["Credential", "Signature", "SignedHeaders"]:
-        if required_field not in result:
-            raise ValueError("Missing %s parameter" % required_field)
-
-    return result
 
 def normalize_uri_path_component(path_component):
     """
@@ -520,15 +470,6 @@ def get_canonical_uri_path(uri_path):
             i += 1
     
     return "/" + "/".join(components)
-
-def _sort_query_params(kv1, kv2):
-    if kv1[0] == _x_amz_signature:
-        if kv2[0] != _x_amz_signature:
-            return 1
-    elif kv2[0] == _x_amz_signature:
-        return -1
-
-    return cmp(kv1, kv2)
 
 def normalize_query_parameters(query_string):
     """
