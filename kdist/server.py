@@ -54,6 +54,9 @@ class Handler(object):
         return
 
     def validate_message(self):
+        """
+        Verify the message signature.  We use the AWS Sigv4 algorithm here.
+        """
         headers = request.headers
 
         # Figure out how the client signed the request.
