@@ -9,11 +9,14 @@ from unittest import TestCase
 region = "us-east-1"
 service = "host"
 key_mapping = { "AKIDEXAMPLE": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY" }
+remove_auth = "remove_auth"
 
 class AWSSigV4TestCaseRunner(TestCase):
-    def __init__(self, filebase, methodName="runTest"):
+    def __init__(self, filebase, tweaks="", methodName="runTest"):
         super(AWSSigV4TestCaseRunner, self).__init__(methodName=methodName)
         self.filebase = filebase
+        self.tweaks = tweaks
+        return
         
     def runTest(self):
         with open(self.filebase + ".sreq", "r") as fd:
@@ -30,6 +33,9 @@ class AWSSigV4TestCaseRunner(TestCase):
                 header, value = line[:-2].split(":", 1)
                 key = header.lower()
                 value = value.strip()
+
+                if self.tweaks == remove_auth and key == "authorization":
+                    continue
                 
                 if key in headers:
                     headers[key].append(value)
@@ -63,15 +69,24 @@ class AWSSigV4TestCaseRunner(TestCase):
             method, uri_path, query_string, headers, body, region, service,
             key_mapping, None)
 
-        self.assertEqual(
-            v.canonical_request, canonical_request,
-            "Canonical request mismatch in %s\nExpected: %r\nReceived: %r" %
-            (self.filebase, canonical_request, v.canonical_request))
-        self.assertEqual(
-            v.string_to_sign, string_to_sign,
-            "String to sign mismatch in %s\nExpected: %r\nReceived: %r" %
-            (self.filebase, string_to_sign, v.string_to_sign))
-        v.verify()
+        if self.tweaks:
+            try:
+                v.verify()
+                self.fail("Expected verify() to throw an InvalidSignature "
+                          "error")
+            except sigv4.InvalidSignatureError:
+                pass
+        else:
+            self.assertEqual(
+                v.canonical_request, canonical_request,
+                "Canonical request mismatch in %s\nExpected: %r\nReceived: %r" %
+                (self.filebase, canonical_request, v.canonical_request))
+            self.assertEqual(
+                v.string_to_sign, string_to_sign,
+                "String to sign mismatch in %s\nExpected: %r\nReceived: %r" %
+                (self.filebase, string_to_sign, v.string_to_sign))
+            v.verify()
+
         return
     # end runTest
 
@@ -84,6 +99,7 @@ def get_test_cases():
     for filename in glob(dirname(__file__) + "/aws4_testsuite/*.req"):
         filebase = splitext(filename)[0]
         tests.append(AWSSigV4TestCaseRunner(filebase))
+        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=remove_auth))
 
     return tests
 
