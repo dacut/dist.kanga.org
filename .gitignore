@@ -1,8 +1,11 @@
 *~
 *.pyc
+*/#*
+*/.#*
 dist.cfg
 .coverage
 dist.kanga.org.egg-info
-dist
+/dist
 htmlcov
 build
+javacompat/target/*
