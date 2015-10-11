@@ -31,7 +31,8 @@ setup(
             "kdist-server=kdist.server:run_server",
         ]
     },
-    install_requires=["boto>=2.0", "Flask>=0.10"],
+    install_requires=["boto>=2.0", "Flask>=0.10", "pycrypto>=2.6"],
+    setup_requires=["nose>=1.0"],
 
     # PyPI information
     author="David Cuthbert",

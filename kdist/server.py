@@ -206,6 +206,7 @@ class Handler(object):
 
 def run_server():
     default_encryption_context = object()
+    credential_store = None
     key_id = None
     port = 80
     region = None
@@ -214,16 +215,18 @@ def run_server():
 
     try:
         opts, args = getopt(
-            argv[1:], "e:hk:p:P:r:",
-            ["encryption-context=", "help", "key-id=", "port=", "profile=",
-             "region="])
+            argv[1:], "C:e:hk:p:P:r:",
+            ["credential-store=", "encryption-context=", "help", "key-id=",
+             "port=", "profile=", "region="])
     except GetoptError as e:
         print(str(e), file=stderr)
         server_usage()
         return 1
 
     for opt, value in opts:
-        if opt in ("-e", "--encryption-context"):
+        if opt in ("-C", "--credential-store"):
+            credential_store = value
+        elif opt in ("-e", "--encryption-context"):
             try:
                 k, v = value.split(":", 1)
             except:
@@ -288,6 +291,20 @@ Usage: kdist-server [options]
 Run the endpoint for handling build requests.
 
 Options:
+    -C <url> | --credential-store <url>
+        Read credentials from the given URL.  Currently only S3 URLs in
+        the form s3://<bucket>/<object> are supported.
+
+        The credential store is a flat file encrypted with a KMS key.  Each
+        line describes a single access key/secret key pair separated by
+        whitespace.  Empty lines and comment lines starting with '#' are
+        ignored.
+
+        For example:
+            # Credential store
+            AKIDEXAMPLE1 wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
+            AKIDEXAMPLE2 qHBl8ve/qpoFzk+0eN4ZxRYJlPDW8eEXAMPLEKEY
+
     -e <key>:<value> | --encryption-context <key>:<value>
         Set the encryption context for KMS encrypt and decrypt operations to
         the given name.  This may be specified multiple times.  The default

@@ -27,6 +27,8 @@ delete_date = "delete_date"
 class AWSSigV4TestCaseRunner(TestCase):
     def __init__(self, filebase, tweaks="", methodName="runTest"):
         super(AWSSigV4TestCaseRunner, self).__init__(methodName=methodName)
+        #if filebase == "runTest":
+        #    raise ValueError()
         self.filebase = filebase
         self.tweaks = tweaks
         return
@@ -448,7 +450,13 @@ class BadTypeInitializer(TestCase):
         except TypeError:
             pass
 
+# Hide the test case class from automatic module discovery tools.
+_test_classes = [AWSSigV4TestCaseRunner]
+del AWSSigV4TestCaseRunner
+
 def get_test_cases():
+    global AWSSigV4TestCaseRunner
+    AWSSigV4TestCaseRunner = _test_classes[0]
     tests = []
     for filename in glob(dirname(__file__) + "/aws4_testsuite/*.req"):
         filebase = splitext(filename)[0]

@@ -8,3 +8,5 @@ def suite():
     ts.addTests(tests.sigv4_test.get_test_cases())
 
     return ts
+
+nosetests = suite
