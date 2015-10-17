@@ -369,7 +369,6 @@ class S3EncryptionTest(TestCase):
         ])
         
         cwd=dirname(dirname(__file__)) + "/javacompat"
-        print(cwd)
         proc = Popen(["mvn", "-e", "exec:java",
                       "-Dexec.mainClass=org.kanga.dist.S3Test",
                       "-Dexec.args=" + args],
