@@ -10,7 +10,6 @@ from httplib import BAD_REQUEST, NOT_FOUND, OK, UNAUTHORIZED
 from json import dumps as json_dumps, loads as json_loads
 from kdist.s3 import S3ClientEncryptionHandler
 from kdist.sigv4 import AWSSigV4Verifier, InvalidSignatureError
-from logging import basicConfig, DEBUG
 from math import modf
 from os import urandom
 from os.path import dirname
@@ -33,8 +32,6 @@ kms_key_id = "01234567-89ab-cdef-0123-456789abcdef"
 key_map = {access_key: secret_key}
 s3_owner = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 s3_display_name = 's3test'
-
-basicConfig(level=DEBUG)
 
 def find_open_port():
     """
@@ -355,9 +352,6 @@ class S3EncryptionTest(TestCase):
 
         tmpfile.seek(0)
         data = tmpfile.read()
-
-        print("Reading output from %s" % tmpfile.name)
-        
         return data
 
     def java_encrypted_put(self, object_name, value):
