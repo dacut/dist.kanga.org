@@ -8,7 +8,7 @@ from flask import abort, Flask, make_response, request
 from hashlib import md5
 from httplib import BAD_REQUEST, NOT_FOUND, OK, UNAUTHORIZED
 from json import dumps as json_dumps, loads as json_loads
-from kdist.s3 import S3ClientEncryptionHandler
+from kdist.s3 import S3ClientEncryptionHandler, EncryptionError
 from kdist.sigv4 import AWSSigV4Verifier, InvalidSignatureError
 from math import modf
 from os import urandom
@@ -126,10 +126,21 @@ class InMemoryAWSServer(Thread):
                 {"__type": "MissingParameter",
                  "message": "Missing parameter: %s" % e.args[0]}), BAD_REQUEST)
 
-        encrypt_params = json_loads(b64decode(ciphertext_blob))
-        key_id = encrypt_params["KeyId"]
-        encryption_context = encrypt_params["EncryptionContext"]
-        plaintext = encrypt_params["Plaintext"]
+        try:
+            encrypt_params = json_loads(b64decode(ciphertext_blob))
+        except ValueError as e:
+            return make_response(json_dumps(
+                {"__type": "InvalidParameterValue",
+                 "message": "Invalid ciphertext blob"}), BAD_REQUEST)
+
+        try:
+            key_id = encrypt_params["KeyId"]
+            encryption_context = encrypt_params["EncryptionContext"]
+            plaintext = encrypt_params["Plaintext"]
+        except KeyError as e:
+            return make_response(json_dumps(
+                {"__type": "MissingParameter",
+                 "message": "Missing parameter: %s" % e.args[0]}), BAD_REQUEST)
 
         # Plaintext is already base64 encoded.
 
@@ -146,6 +157,11 @@ class InMemoryAWSServer(Thread):
             return make_response(json_dumps(
                 {"__type": "MissingParameter",
                  "message": "Missing parameter: %s" % e.args[0]}), BAD_REQUEST)
+
+        if key_id != kms_key_id:
+            return make_response(json_dumps(
+                {"__type": "InvalidParameterValue",
+                 "message": "Unknown key"}), BAD_REQUEST)
 
         # Random key
         if key_spec == "AES_256":
@@ -320,12 +336,142 @@ class S3EncryptionTest(TestCase):
 
         bucket = s3.get_bucket("hello")
         key = bucket.new_key("hello")
-        enc.write(key, "Hello world!")
+        enc.write(key, "Hello world!", headers={"content-type": "text/plain"})
 
         result = self.java_encrypted_get("hello")
         self.assertEqual(result, "Hello world!")
         return
 
+    def test_missing_metadata(self):
+        kms = boto.kms.connect_to_region(
+            "us-west-2", aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key, is_secure=False,
+            port=self.s3_server.port, host="127.0.0.1")
+        kms.auth_region_name = 'us-west-2'
+        kms.auth_service_name = 'kms'
+        
+        s3 = boto.s3.connect_to_region(
+            "us-west-2", aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key, is_secure=False,
+            port=self.s3_server.port, host="127.0.0.1",
+            calling_format=OrdinaryCallingFormat())
+        enc = S3ClientEncryptionHandler(kms, kms_key_id)
+
+        bucket = s3.get_bucket("hello")
+        key = bucket.new_key("missing_metadata")        
+        enc.write(key, "Hello world!")
+        del key
+
+        # Remove bits of metadata.
+        obj = self.s3_server.buckets["hello"]["missing_metadata"]
+        for header in ['x-amz-meta-x-amz-key-v2', 'x-amz-meta-x-amz-wrap-alg',
+                       'x-amz-meta-x-amz-cek-alg', 'x-amz-meta-x-amz-iv',
+                       'x-amz-meta-x-amz-matdesc']:
+            value = obj.headers[header]
+            del obj.headers[header]
+
+            # Make sure we get an EncryptionError
+            try:
+                key = bucket.new_key("missing_metadata")
+                enc.read(key)
+                self.fail("Exepcted EncryptionError for missing header %s" %
+                          header)
+            except EncryptionError:
+                del key
+
+            obj.headers[header] = value
+
+        # Corrupt the data key
+        dk = obj.headers['x-amz-meta-x-amz-key-v2']
+        obj.headers['x-amz-meta-x-amz-key-v2'] = "aa"
+        try:
+            key = bucket.new_key("missing_metadata")
+            enc.read(key)
+            self.fail("Expected EncryptionError for corrupted header "
+                      "x-amz-meta-x-amz-key-v2")
+        except EncryptionError as e:
+            del key
+        obj.headers['x-amz-meta-x-amz-key-v2'] = dk
+
+        # Corrupt the material description
+        md = obj.headers['x-amz-meta-x-amz-matdesc']
+        obj.headers['x-amz-meta-x-amz-matdesc'] = "aa"
+        try:
+            key = bucket.new_key("missing_metadata")
+            enc.read(key)
+            self.fail("Expected EncryptionError for corrupted header "
+                      "x-amz-meta-x-amz-matdesc")
+        except EncryptionError as e:
+            del key
+        obj.headers['x-amz-meta-x-amz-matdesc'] = md
+
+        # Remvoe critical JSON from the matdesc.
+        md = obj.headers['x-amz-meta-x-amz-matdesc']
+        obj.headers['x-amz-meta-x-amz-matdesc'] = '{}'
+        try:
+            key = bucket.new_key("missing_metadata")
+            enc.read(key)
+            self.fail("Expected EncryptionError for corrupted header "
+                      "x-amz-meta-x-amz-matdesc")
+        except EncryptionError as e:
+            del key
+        obj.headers['x-amz-meta-x-amz-matdesc'] = md
+        
+        return
+
+    def test_bad_algorithms(self):
+        kms = boto.kms.connect_to_region(
+            "us-west-2", aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key, is_secure=False,
+            port=self.s3_server.port, host="127.0.0.1")
+        kms.auth_region_name = 'us-west-2'
+        kms.auth_service_name = 'kms'
+        
+        s3 = boto.s3.connect_to_region(
+            "us-west-2", aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key, is_secure=False,
+            port=self.s3_server.port, host="127.0.0.1",
+            calling_format=OrdinaryCallingFormat())
+        enc = S3ClientEncryptionHandler(kms, kms_key_id)
+
+        bucket = s3.get_bucket("hello")
+        key = bucket.new_key("bad_algorithms")
+
+        try:
+            enc.write(key, "Hello world!", wrapper_algorithm="foo")
+            self.fail("Expected EncryptionError")
+        except EncryptionError:
+            pass
+
+        try:
+            enc.write(key, "Hello world!", encryption_algorithm="foo")
+            self.fail("Expected EncryptionError")
+        except EncryptionError:
+            pass
+
+    def test_unknown_key(self):
+        kms = boto.kms.connect_to_region(
+            "us-west-2", aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key, is_secure=False,
+            port=self.s3_server.port, host="127.0.0.1")
+        kms.auth_region_name = 'us-west-2'
+        kms.auth_service_name = 'kms'
+        
+        s3 = boto.s3.connect_to_region(
+            "us-west-2", aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key, is_secure=False,
+            port=self.s3_server.port, host="127.0.0.1",
+            calling_format=OrdinaryCallingFormat())
+        enc = S3ClientEncryptionHandler(kms, "foo")
+
+        bucket = s3.get_bucket("hello")
+        key = bucket.new_key("unknown_key")
+        try:
+            enc.write(key, "Hello world!")
+            self.fail("Expected EncryptionError")
+        except EncryptionError:
+            pass
+                                 
     def java_encrypted_get(self, object_name):
         tmpfile = NamedTemporaryFile()
         args = " ".join([

@@ -68,7 +68,7 @@ class S3ClientEncryptionHandler(object):
 
         try:
             encrypted_data_key = b64decode(encrypted_data_key)
-        except ValueError:
+        except (ValueError, TypeError):
             raise EncryptionError(
                 "%s: Malformed %s metadata entry" % (key_name, _x_amz_key_v2))
 
@@ -175,7 +175,7 @@ class S3ClientEncryptionHandler(object):
         cmk_id = material_desc.get(_kms_cmk_id)
         if cmk_id is None:
             raise EncryptionError(
-                "%s: metadata entry %s does not have a %s key" %
+                "%s: Metadata entry %s does not have a %s key" %
                 (key_name, _x_amz_matdesc, _kms_cmk_id))
 
         try:
