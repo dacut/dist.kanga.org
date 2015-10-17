@@ -264,7 +264,8 @@ class AWSSigV4Verifier(object):
             raise AttributeError("Invalid request credential: %r" % credential)
 
         if scope != self.credential_scope:
-            raise AttributeError("Incorrect credential scope")
+            raise AttributeError("Incorrect credential scope: %r (wanted %r)" %
+                                 (scope, self.credential_scope))
 
         return key
 

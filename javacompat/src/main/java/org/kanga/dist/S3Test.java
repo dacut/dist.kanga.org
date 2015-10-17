@@ -2,13 +2,16 @@ package org.kanga.dist;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.util.Arrays;
 import static java.lang.System.err;
 import static java.lang.System.exit;
 import static java.lang.System.in;
 import static java.lang.System.out;
+import static java.lang.System.setProperty;
 
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentials;
@@ -54,6 +57,9 @@ public class S3Test {
         .addOption(Option.builder("o").longOpt("object").hasArg()
                    .argName("objectName").required()
                    .desc("Name of the object to access").build())
+        .addOption(Option.builder("O").longOpt("outputFile").hasArg()
+                   .argName("filename")
+                   .desc("Write output to specified file").build())
         .addOption(Option.builder("P").longOpt("intercept").hasArg()
                    .argName("host[:port]")
                    .desc("Intercept host or host:port to use").build())
@@ -67,6 +73,8 @@ public class S3Test {
         ;
 
     public static void main(String[] args) throws Exception {
+        setProperty("org.apache.commons.logging.diagnostics.dest", "STDERR");
+        setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.Log4JLogger");
         CommandLine cmdLine;
 
         try {
@@ -86,60 +94,88 @@ public class S3Test {
 
         String bucketName = cmdLine.getOptionValue('b');
         String objectName = cmdLine.getOptionValue('o');
+        String outputFile = cmdLine.getOptionValue('O');
         String interceptHost = cmdLine.getOptionValue('P');
         int interceptPort = 80;
         String kmsCMKId = cmdLine.getOptionValue('k');
         boolean write = cmdLine.hasOption('w');
 
         ClientConfiguration clientConfig = new ClientConfiguration();
-        AWSKMSClient kms = new AWSKMSClient(creds, clientConfig);
-        if (interceptHost != null) {
-            kms.setEndpoint(interceptHost);
-        }
-            
-        KMSEncryptionMaterialsProvider materialProvider =
-            new KMSEncryptionMaterialsProvider(kmsCMKId);
-        CryptoConfiguration cryptoConfig =
-            new CryptoConfiguration().withKmsRegion(Regions.US_WEST_2);
+
+        AWSKMSClient kms = null;
+        AmazonS3EncryptionClient s3 = null;
         
-        AmazonS3EncryptionClient encryptionClient =
-            new AmazonS3EncryptionClient(
-                kms, creds, materialProvider, clientConfig, cryptoConfig, null)
-            .withRegion(Regions.US_WEST_2);
-
-        encryptionClient.setS3ClientOptions(
-            new S3ClientOptions().withPathStyleAccess(false));
-
-        if (interceptHost != null) {
-            encryptionClient.setEndpoint(interceptHost);
-        }
-
-        if (write) {
-            // Upload object using the encryption client.
-            ByteArrayOutputStream plaintext = new ByteArrayOutputStream();
-            byte[] buffer = new byte[BUFFER_SIZE];
-            int nRead;
-
-            while ((nRead = in.read(buffer)) != -1) {
-                plaintext.write(buffer, 0, nRead);
+        try {
+            kms = new AWSKMSClient(creds, clientConfig);
+            kms.configureRegion(Regions.US_WEST_2);
+            if (interceptHost != null) {
+                kms.setEndpoint(interceptHost, "kms", "us-west-2");
             }
-        
-            encryptionClient.putObject(
-                new PutObjectRequest(
-                    bucketName,
-                    objectName,
-                    new ByteArrayInputStream(plaintext.toByteArray()),
-                    new ObjectMetadata()));
-        } else {
-            // Download object using the encryption client.
-            S3Object result = encryptionClient.getObject(
-                new GetObjectRequest(bucketName, objectName));
-            byte[] buffer = new byte[BUFFER_SIZE];
-            InputStream plaintext = result.getObjectContent();
-            int nRead;
 
-            while ((nRead = plaintext.read(buffer)) != -1) {
-                out.write(buffer, 0, nRead);
+            KMSEncryptionMaterialsProvider materialProvider =
+                new KMSEncryptionMaterialsProvider(kmsCMKId);
+            CryptoConfiguration cryptoConfig =
+                new CryptoConfiguration().withKmsRegion(Regions.US_WEST_2);
+        
+            s3 = new AmazonS3EncryptionClient(
+                kms, creds, materialProvider, clientConfig, cryptoConfig,
+                null).withRegion(Regions.US_WEST_2);
+
+            s3.setS3ClientOptions(
+                new S3ClientOptions().withPathStyleAccess(false));
+
+            if (interceptHost != null) {
+                s3.setEndpoint(interceptHost);
+            }
+
+            if (write) {
+                // Upload object using the encryption client.
+                ByteArrayOutputStream plaintext = new ByteArrayOutputStream();
+                byte[] buffer = new byte[BUFFER_SIZE];
+                int nRead;
+
+                while ((nRead = in.read(buffer)) != -1) {
+                    plaintext.write(buffer, 0, nRead);
+                }
+        
+                s3.putObject(
+                    new PutObjectRequest(
+                        bucketName,
+                        objectName,
+                        new ByteArrayInputStream(plaintext.toByteArray()),
+                        new ObjectMetadata()));
+            } else {
+                // Download object using the encryption client.
+                S3Object result = s3.getObject(
+                    new GetObjectRequest(bucketName, objectName));
+                byte[] buffer = new byte[BUFFER_SIZE];
+                InputStream plaintext = result.getObjectContent();
+                int nRead;
+
+                if (outputFile != null) {
+                    OutputStream outFile = new FileOutputStream(outputFile);
+                    try {
+                        while ((nRead = plaintext.read(buffer)) != -1) {
+                            outFile.write(buffer, 0, nRead);
+                        }
+                    }
+                    finally {
+                        outFile.close();
+                    }
+                } else {
+                    while ((nRead = plaintext.read(buffer)) != -1) {
+                        out.write(buffer, 0, nRead);
+                    }
+                }
+            }
+        }
+        finally {
+            if (kms != null) {
+                kms.shutdown();
+            }
+
+            if (s3 != null) {
+                s3.shutdown();
             }
         }
     }
