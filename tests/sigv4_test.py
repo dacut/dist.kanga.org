@@ -454,7 +454,7 @@ class BadTypeInitializer(TestCase):
 _test_classes = [AWSSigV4TestCaseRunner]
 del AWSSigV4TestCaseRunner
 
-def get_test_cases():
+def test_aws_suite():
     global AWSSigV4TestCaseRunner
     AWSSigV4TestCaseRunner = _test_classes[0]
     tests = []
@@ -469,10 +469,8 @@ def get_test_cases():
         tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=dup_signature))
         tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=delete_date))
 
-    tests.append(QuerySignatures())
-    tests.append(BadTypeInitializer())
-        
-    return tests
+    for test in tests:
+        test.runTest()
 
 # Local variables:
 # mode: Python

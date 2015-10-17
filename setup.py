@@ -2,22 +2,13 @@
 from __future__ import absolute_import, print_function
 from setuptools import setup, Command
 
-class run_coverage(Command):
-    description = "Generate a test coverage report."
-    user_options = []    
-    def initialize_options(self): pass
-    def finalize_options(self): pass 
-    def run(self):
-        import subprocess
-        subprocess.call(['coverage', 'erase'])
-        subprocess.call(['coverage', 'run', '--source=kdist', 'run_tests.py'])
-        subprocess.call(['coverage', 'html'])
-        subprocess.call(['coverage', 'report', '--show-missing'])
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("nose").setLevel(logging.DEBUG)
 
 setup(
     name="dist.kanga.org",
     version="1.0",
-    cmdclass={"coverage": run_coverage},
     packages=['kdist'],
     package_data={
         'kdist': ['*.csv', '*.sh'],
@@ -49,5 +40,4 @@ setup(
     ],
     keywords = ['repository', 'distribution', 'yum'],
     zip_safe=False,
-
 )
