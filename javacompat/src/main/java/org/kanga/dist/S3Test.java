@@ -73,8 +73,12 @@ public class S3Test {
         ;
 
     public static void main(String[] args) throws Exception {
-        setProperty("org.apache.commons.logging.diagnostics.dest", "STDERR");
-        setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.Log4JLogger");
+        // Uncomment if you're having difficulty setting up the logger.
+        // setProperty("org.apache.commons.logging.diagnostics.dest", "STDERR");
+        
+        setProperty("org.apache.commons.logging.Log",
+                    "org.apache.commons.logging.impl.Log4JLogger");
+        
         CommandLine cmdLine;
 
         try {

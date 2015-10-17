@@ -1,20 +1,25 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from base64 import b64decode, b64encode
-from boto.exceptions import BotoServerError
+from boto.exception import BotoServerError
 from Crypto.Cipher import AES
 import Crypto.Random
-from json import loads as json_loads
+from json import dumps as json_dumps, loads as json_loads
 
+AES_BLOCKSIZE = 16
+_AES_256 = "AES_256"
+_AES_CBC_PKCS5Padding = "AES/CBC/PKCS5Padding"
+_CiphertextBlob = "CiphertextBlob"
+_KeyId = "KeyId"
+_Plaintext = "Plaintext"
 _kms = "kms"
 _kms_cmk_id = "kms_cmk_id"
-_x_amz_wrap_alg = "x-amz-wrap-alg"
-_x_amz_matdesc = "x-amz-matdesc"
-_x_amz_key_v2 = "x-amz-key-v2"
-_x_amz_iv = "x-amz-iv"
 _x_amz_cek_alg = "x-amz-cek-alg"
+_x_amz_iv = "x-amz-iv"
+_x_amz_key_v2 = "x-amz-key-v2"
+_x_amz_matdesc = "x-amz-matdesc"
 _x_amz_meta_ = "x-amz-meta-"
-_AES_CBC_PKCS5Padding = "AES/CBC/PKCS5Padding"
+_x_amz_wrap_alg = "x-amz-wrap-alg"
 
 class EncryptionError(RuntimeError):
     """
@@ -84,7 +89,7 @@ class S3ClientEncryptionHandler(object):
             raise EncryptionError(
                 "%s: Unknown cipher %s" % (key_name, cek_alg))
 
-        plaintext_data = ciper.decrypt(encrypted_data)
+        plaintext_data = cipher.decrypt(encrypted_data)
 
         if cek_alg in (_AES_CBC_PKCS5Padding,):
             plaintext_data = plaintext_data[:-ord(plaintext_data[-1])]
@@ -92,64 +97,66 @@ class S3ClientEncryptionHandler(object):
         return plaintext_data
 
     def write(self, key, plaintext_data, wrapper_algorithm=_kms,
-              encryption_algorithm=_AES_CBC_PKCS5, key_id=None, headers=None,
-              **kw):
+              encryption_algorithm=_AES_CBC_PKCS5Padding, key_id=None,
+              headers=None, **kw):
         key_name = "s3://%s/%s" % (key.bucket.name, key.name)
         random = Crypto.Random.new()
 
         # Encryption metadata headers for the S3 object
         s3_headers = {
-            _x_amz_meta_ + _x_amz_wrap_alg: wrapper_alg,
+            _x_amz_meta_ + _x_amz_wrap_alg: wrapper_algorithm,
             _x_amz_meta_ + _x_amz_cek_alg: encryption_algorithm,
         }
         
         # Create a cipher and pad the metadata as needed.
-        if encryption_algorithm in (_AES_CBC_PKCS5,):
-            data_key = random.read(16)
+        if encryption_algorithm in (_AES_CBC_PKCS5Padding,):
+            # Create an IV; needed to scramble the data.
             iv = random.read(16)
-            pad = 16 - len(plaintext_data) % 16
+            s3_headers[_x_amz_meta_ + _x_amz_iv] = b64encode(iv)
+
+            if wrapper_algorithm == _kms:
+                # Call KMS to generate a data key
+                encryption_context = { _kms_cmk_id: key_id }
+                try:
+                    dk_result = self.kms.generate_data_key(
+                        key_id=self.key_id,
+                        encryption_context=encryption_context,
+                        key_spec=_AES_256)
+                except BotoServerError as e:
+                    raise EncryptionError(
+                        "%s: failed to generate data key from KMS: %s" %
+                        (key_name, e))
+
+                # This is our data encryption key.
+                data_key = dk_result[_Plaintext]
+
+                # This is our data encryption key, itself encrypted with
+                # the customer master key.
+                ciphertext_blob = dk_result[_CiphertextBlob]
+                s3_headers[_x_amz_meta_ + _x_amz_key_v2] = b64encode(
+                    ciphertext_blob)
+
+                # Record the key used to encrypt the data.
+                s3_headers[_x_amz_meta_ + _x_amz_matdesc] = json_dumps(
+                    {_kms_cmk_id: dk_result[_KeyId]})
+            else:
+                raise EncryptionError(
+                    "%s: Unsupported wrapper algorithm %r" %
+                    (key_name, wrapper_algorithm))
+
+            # Pad the data out to the AES blocksize.
+            pad = AES_BLOCKSIZE - len(plaintext_data) % AES_BLOCKSIZE
             plaintext_data = plaintext_data + chr(pad) * pad
             cipher = AES.new(data_key, AES.MODE_CBC, iv)
-
-            s3_headers[_x_amz_meta_ + _x_amz_iv] = b64encode(iv)
         else:
             raise EncryptionError(
                 "%s: Unknown encryption algorithm %s" %
-                (key_name, encryption_algorithm))
+            (key_name, encryption_algorithm))
         
-        encrypted_data = cipher.encrypt(plaintext_data)
-
-        # Encrypt the data key.
-        if wrapper_algorithm == _kms:
-            if key_id is None:
-                key_id = self.key_id
-                if key_id is None:
-                    raise EncryptionError(
-                        "%s: Must specify a key_id or set a default for KMS "
-                        "encryption" % key_name)
-
-            encryption_context = { _kms_cmk_id: key_id }
-            try:
-                response = self.kms.encrypt(
-                    key_id, data_key, encryption_context=encryption_context)
-                encrypted_data_key = response['CiphertextBlob']
-            except BotoServerError as e:
-                raise EncryptionError(
-                    "%s: KMS encryption failure: %s" % (key_name, e))
-
-            s3_headers[_x_amz_meta_ + _x_amz_matdesc] = (
-                json_dumps(encryption_context))
-        else:
-            raise EncryptionError(
-                "%s: Unsupported wrapper algorithm %r" %
-                (key_name, wrapper_algorithm))
-
-        s3_headers[_x_amz_meta_ + _x_amz_key_v2] = (
-            b64encode(encrypted_data_key))
-
         if headers is not None:
             s3_headers.update(headers)
-        
+
+        encrypted_data = cipher.encrypt(plaintext_data)
         key.set_contents_from_string(encrypted_data, headers=s3_headers, **kw)
         return
 
