@@ -142,6 +142,13 @@ class ServerTest(TestCase):
                 client.auth_region_name = region
                 client.auth_service_name = "kdist"
 
+                for cmd in [[], "asdf", [{"x": "y"}]]:
+                    try:
+                        result = client.execute(command=cmd, directory="/")
+                        self.fail("Expected KDistServerError")
+                    except KDistServerError:
+                        pass
+
                 for env in [["foo"], "", {"x": []}, {"": "x"}]:
                     try:
                         result = client.execute(
@@ -151,7 +158,7 @@ class ServerTest(TestCase):
                     except KDistServerError:
                         pass
 
-                for user in [7, ["root"]]:
+                for user in [7, ["root"], "this-user-does-not-exist"]:
                     try:
                         result = client.execute(
                             command=["/bin/pwd"], directory="/", user=user)
@@ -166,6 +173,15 @@ class ServerTest(TestCase):
                         self.fail("Expected KDistServerError")
                     except KDistServerError:
                         pass
+
+                for stdin in [10, [], {"1": "2"}]:
+                    try:
+                        result = client.execute(
+                            command=["/bin/pwd"], directory="/", stdin=stdin)
+                        self.fail("Expected KDistServerError")
+                    except KDistServerError:
+                        pass
+                    
             finally:
                 server.handler.server.shutdown()
                 server_runner.join()

@@ -110,6 +110,7 @@ class Handler(object):
         stdin = data.get("stdin", "")
 
         if (not isinstance(cmdline, (list, tuple)) or
+            len(cmdline) == 0 or
             not all([isinstance(arg, string_types) for arg in cmdline])):
             self.app.logger.warning("execute: invalid command line: %r",
                                     cmdline)
@@ -133,7 +134,7 @@ class Handler(object):
 
         if not isinstance(stdin, string_types):
             self.app.logger.warning("execute: invalid stdin: %r", stdin)
-            abort(BAD_REQUET)
+            abort(BAD_REQUEST)
 
         user = "root" if user is None else user
 
@@ -257,7 +258,7 @@ class Server(object):
             access_key, secret_key = line.split()
             self.credentials[access_key] = secret_key
 
-def run_server(args=None):
+def run_server(args=None): # pragma: no cover
     credential_store = None
     port = 80
     profile_name = None
@@ -314,7 +315,7 @@ def run_server(args=None):
     server.run()
     return 0
 
-def server_usage(fd=stderr):
+def server_usage(fd=stderr): # pragma: no cover
     fd.write("""\
 Usage: kdist-server [options]
 Run the endpoint for handling build requests.
