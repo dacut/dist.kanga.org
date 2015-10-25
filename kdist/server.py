@@ -3,15 +3,20 @@ from __future__ import absolute_import, division, print_function
 from base64 import b64decode, b64encode
 from boto.exception import BotoClientError, BotoServerError
 import boto.kms
+import boto.s3
+from boto.s3.connection import OrdinaryCallingFormat
 from flask import abort, Flask, make_response, request
 from getopt import getopt, GetoptError
 import hashlib
 import hmac
 from httplib import BAD_REQUEST, INTERNAL_SERVER_ERROR, UNAUTHORIZED
 from json import dumps as json_dumps
+from kdist.s3 import S3ClientEncryptionHandler
+from kdist.sigv4 import AWSSigV4Verifier, InvalidSignatureError
 from os import setegid, seteuid
 from pwd import getpwnam
 from six import string_types
+from six.moves import cStringIO
 from subprocess import PIPE, Popen
 from sys import argv, stdout, stderr
 
@@ -27,25 +32,19 @@ def get_default_region():
     return get_instance_metadata()['placement']['availability-zone'][:-1]
 
 class Handler(object):
-    valid_signature_methods = {
-        "sha256": hashlib.sha256,
-        "sha384": hashlib.sha384,
-        "sha512": hashlib.sha512,
-    }
     max_request_size = 1 << 20
     default_path = (
         "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/sbin:"
         "/opt/aws/bin")
+    
+    service = "kdistserver"
 
-    def __init__(self, app, key_id, region=None, encryption_context=None,
-                 profile_name=None):
+    def __init__(self, app, region, service=None, keymap={}):
         super(Handler, self).__init__()
-        if region is None: region = get_default_region()
         self.app = app
-        self.key_id = key_id
-        self.kms = boto.kms.connect_to_region(
-            region, profile_name=profile_name)
-        self.encryption_context = encryption_context
+        self.region = region
+        if service is not None: self.service = service
+        self.keymap = keymap
         self.server = None
 
         app.before_request(self.validate_message)
@@ -57,47 +56,26 @@ class Handler(object):
         """
         Verify the message signature.  We use the AWS Sigv4 algorithm here.
         """
-        headers = request.headers
-
-        # Figure out how the client signed the request.
-        sig_method = headers.get("SignatureMethod")
-        sig_key_enc = headers.get("SignatureKeyEncrypted")
-        sig = headers.get("Signature")
-
-        # Make sure it's one we support.
-        if (sig_method not in self.valid_signature_methods or
-            sig_key_enc is None or
-            sig is None):
-            abort(BAD_REQUEST)
-
-        try:
-            sig_key = self.kms.decrypt(
-                b64decode(sig_key_enc),
-                encryption_context=self.encryption_context)
-        except (BotoClientError, BotoServerError) as e:
-            self.app.logger.error("Failed to decrypt signature key.",
-                                  exc_info=True)
-            abort(INTERNAL_SERVER_ERROR)
-
+        
         # Refuse to verify requests larger than the maximum we're willing
         # to handle.
-        data = request.stream.read(self.max_request_size + 1)
-        if len(data) > self.max_request_size:
+        body = request.stream.read(self.max_request_size + 1)
+        if len(body) > self.max_request_size:
             abort(BAD_REQUEST)
         
-        # Cache the data so we can decode it later on.
-        request._cached_data = data
+        # Cache the body so we can decode it later on.
+        request._cached_data = body
 
-        # Run HMAC on the data; make sure the keys agree.
-        self.app.logger.info("Key: %r", sig_key['Plaintext'])
-        self.app.logger.info("Data: %r", data)
-        mac = hmac.new(sig_key['Plaintext'], data,
-                       digestmod=self.valid_signature_methods[sig_method])
-        if sig.lower() != mac.hexdigest().lower():
-            self.app.logger.warning("Invalid signature: expected %r, got %r",
-                                    mac.hexdigest().lower(), sig.lower())
+        # Verify the signature.
+        verifier = AWSSigV4Verifier(
+            request.method, request.path, request.query_string,
+            request.headers, body, self.region, self.service, self.keymap)
+
+        try:
+            verifier.verify()
+        except InvalidSignatureError:
             abort(UNAUTHORIZED)
-        
+
         # We only accept JSON; force it to be parsed now.
         try:
             request.get_json()
@@ -113,16 +91,7 @@ class Handler(object):
         
         response = make_response(data)
         response.headers["Content-Type"] = "application/json"
-        response.headers["SignatureMethod"] = "sha256"
-
-        data_key = self.kms.generate_data_key(
-            self.key_id, encryption_context=self.encryption_context,
-            key_spec="AES_256")
-        response.headers["SignatureKeyEncrypted"] = b64encode(
-            data_key["CiphertextBlob"])
-
-        response.headers["Signature"] = hmac.new(
-            data_key["Plaintext"], data, hashlib.sha256).hexdigest()
+        response.headers["ETag"] = '"' + hashlib.sha256(data).hexdigest() + '"'
 
         return response
 
@@ -204,20 +173,53 @@ class Handler(object):
         self.server.shutdown_signal = True
         return self.create_response({"exiting": True})
 
+def read_credentials_from_s3(s3_url, kms, s3):
+    """
+    read_credentials_from_s3(s3_url, kms, s3) -> dict
+
+    Read access-key/secret-key map from the specified S3 URL (in the form
+    s3://bucket/key).
+    """
+    assert s3_url.startswith("s3://")
+    try:
+        bucket_name, key_name = s3_url[5:].split("/", 1)
+    except:
+        raise ValueError("Invalid S3 URL: %s" % s3_url)
+
+    enc = S3ClientEncryptionHandler(kms)
+    bucket = s3.get_bucket(bucket_name)
+    key = s3.get_key(key_name)
+
+    data = enc.read(key)
+    return read_credentials_from_stream(cStringIO(data))
+
+def read_credentials_from_file(filename):
+    with open(filename, "r") as fd:
+        return read_credentials_from_stream(fd)
+
+def read_credentials_from_stream(fd):
+    result = {}
+    
+    for line in fd:
+        line = line.strip()
+        if line.startswith("#") or len(line) == 0:
+            continue
+
+        access_key, secret_key = line.split()
+        result[access_key] = secret_key
+
+    return result
+
 def run_server():
-    default_encryption_context = object()
     credential_store = None
-    key_id = None
     port = 80
-    region = None
     profile_name = None
-    encryption_context = default_encryption_context
+    region = None
 
     try:
         opts, args = getopt(
-            argv[1:], "C:e:hk:p:P:r:",
-            ["credential-store=", "encryption-context=", "help", "key-id=",
-             "port=", "profile=", "region="])
+            argv[1:], "C:hk:p:P:r:",
+            ["credential-store=", "help", "port=", "profile=", "region="])
     except GetoptError as e:
         print(str(e), file=stderr)
         server_usage()
@@ -226,23 +228,9 @@ def run_server():
     for opt, value in opts:
         if opt in ("-C", "--credential-store"):
             credential_store = value
-        elif opt in ("-e", "--encryption-context"):
-            try:
-                k, v = value.split(":", 1)
-            except:
-                print("Invalid value for --encryption-context (expected 'key: "
-                      "value'): %r" % value, file=stderr)
-                server_usage()
-                return 1
-
-            if encryption_context is default_encryption_context:
-                encryption_context = {}
-            encryption_context[k.strip()] = v.strip()
         elif opt in ("-h", "--help"):
             server_usage(stdout)
             return 0
-        elif opt in ("-k", "--key-id"):
-            key_id = value
         elif opt in ("-P", "--port"):
             try:
                 port = int(value)
@@ -260,28 +248,35 @@ def run_server():
             print("Unknown option %s" % opt, file=stderr)
             server_usage()
             return 1
+
+    if credential_store.startswith("s3://"):
+        kms = boto.kms.connect_to_region(
+            region=region, profile_name=profile_name)
+        s3 = boto.s3.connect_to_region(
+            region=region, profile_name=profile_name,
+            calling_format=OrdinaryCallingFormat())
+        try:
+            credentials = read_credentials_from_s3(credential_store, kms, s3)
+        except Exception as e:
+            print(str(e), file=stderr)
+            return 1
+    elif credential_store is not None:
+        credentials = read_credentials_from_file(credential_store)
+    else:
+        print("--credential-store must be specified", file=stderr)
+        server_usage()
+        return 1
     
     if len(args) > 0:
         print("Unknown argument %s" % args[0], file=stderr)
         server_usage()
         return 1
 
-    if key_id is None:
-        print("--key-id must be specified", file=stderr)
-        server_usage()
-        return 1
-
-    if encryption_context is default_encryption_context:
-        encryption_context = {"usage": "kdist"}
-
     app = Flask("kdist.server")
-    handler = Handler(app, key_id, region=region, profile_name=profile_name,
-                      encryption_context=encryption_context)
-
+    handler = Handler(app, region, keymap=credentials)
     from werkzeug.serving import make_server
-    server = make_server("", port, app, threaded=True)
-    handler.server = server
-    server.serve_forever()
+    handler.server = make_server("", port, app, threaded=True)
+    handler.server.serve_forever()
 
     return 0
 
@@ -292,29 +287,21 @@ Run the endpoint for handling build requests.
 
 Options:
     -C <url> | --credential-store <url>
-        Read credentials from the given URL.  Currently only S3 URLs in
-        the form s3://<bucket>/<object> are supported.
+        Read credentials from the given URL.  This can be an S3 URLs in
+        the form s3://<bucket>/<object> or a filename.
 
-        The credential store is a flat file encrypted with a KMS key.  Each
-        line describes a single access key/secret key pair separated by
-        whitespace.  Empty lines and comment lines starting with '#' are
-        ignored.
+        The credential store is a flat file (encrypted with a KMS key if
+        stored in S3).  Each line describes a single access key/secret key
+        pair separated by whitespace.  Empty lines and comment lines starting
+        with '#' are ignored.
 
         For example:
             # Credential store
             AKIDEXAMPLE1 wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY
             AKIDEXAMPLE2 qHBl8ve/qpoFzk+0eN4ZxRYJlPDW8eEXAMPLEKEY
 
-    -e <key>:<value> | --encryption-context <key>:<value>
-        Set the encryption context for KMS encrypt and decrypt operations to
-        the given name.  This may be specified multiple times.  The default
-        is 'usage:kdist'.
-    
     -h | --help
         Show this usage information.
-
-    -k <id> | --key-id <id>
-        Specify the key to use for signing responses.  This is required.
 
     -P <num> | --port <num>
         Specify the port to listen on.  Defaults to 80.
