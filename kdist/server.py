@@ -21,14 +21,14 @@ from subprocess import PIPE, Popen
 from sys import argv, stdout, stderr
 
 _metadata = None
-def get_instance_metadata():
+def get_instance_metadata(): # pragma: no cover
     global _metadata
     if _metadata is None:
         import boto.utils
         _metadata = boto.utils.get_instance_metadata()
     return _metadata
 
-def get_default_region():
+def get_default_region(): # pragma: no cover
     return get_instance_metadata()['placement']['availability-zone'][:-1]
 
 class Handler(object):
@@ -37,7 +37,7 @@ class Handler(object):
         "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/sbin:"
         "/opt/aws/bin")
     
-    service = "kdistserver"
+    service = "kdist"
 
     def __init__(self, app, region, service=None, keymap={}):
         super(Handler, self).__init__()
@@ -48,8 +48,8 @@ class Handler(object):
         self.server = None
 
         app.before_request(self.validate_message)
-        app.add_url_rule("/exec", "exec", self.execute, methods=["PUT"])
-        app.add_url_rule("/exit", "exit", self.exit, methods=["PUT"])
+        app.add_url_rule("/exec", "exec", self.execute, methods=["POST"])
+        app.add_url_rule("/exit", "exit", self.exit, methods=["POST"])
         return
 
     def validate_message(self):
@@ -74,6 +74,8 @@ class Handler(object):
         try:
             verifier.verify()
         except InvalidSignatureError:
+            from traceback import print_exc
+            print_exc()
             abort(UNAUTHORIZED)
 
         # We only accept JSON; force it to be parsed now.
@@ -115,9 +117,10 @@ class Handler(object):
 
         if (not isinstance(env, dict) or
             not all([(isinstance(key, string_types) and
-                      isinstance(value, string_types))
-                     for key, value in env.iteritems])):
-            self.app.logger.warning("execute: invalid environment: %r", args)
+                      isinstance(value, string_types) and
+                      len(key) > 0)
+                     for key, value in env.iteritems()])):
+            self.app.logger.warning("execute: invalid environment: %r", env)
             abort(BAD_REQUEST)
 
         if user is not None and not isinstance(user, string_types):
@@ -165,9 +168,17 @@ class Handler(object):
                 'returncode': proc.returncode,
                 'stdout': out,
                 'stderr': err})
+        except OSError as e:
+            return self.create_response({
+                'returncode': 127,
+                'stdout': "",
+                'stderr': str(e)})
         finally:
-            seteuid(0)
-            setegid(0)
+            try:
+                seteuid(0)
+                setegid(0)
+            except OSError as e: # When running in test mode
+                pass
 
     def exit(self):
         self.server.shutdown_signal = True

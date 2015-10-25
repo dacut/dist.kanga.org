@@ -356,6 +356,10 @@ class AWSSigV4Verifier(object):
                     raise InvalidSignatureError("Timestamp mismatch")
 
             if self.expected_signature != self.request_signature:
+                from sys import stderr
+                print("Signature mismatch: expected %r, got %r" % (
+                    self.expected_signature, self.request_signature),
+                      file=stderr)
                 raise InvalidSignatureError(
                     "Signature mismatch: expected %r, got %r" % (
                         self.expected_signature, self.request_signature))
