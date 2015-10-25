@@ -16,8 +16,6 @@ access_key = "access_key"
 secret_key = "secret_key"
 kms_key_id = "01234567-89ab-cdef-0123-456789abcdef"
 keymap = {access_key: secret_key}
-s3_owner = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-s3_display_name = 's3test'
 
 class S3EncryptionTest(TestCase):
     def setUp(self):

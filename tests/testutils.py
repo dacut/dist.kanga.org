@@ -14,7 +14,11 @@ from socket import AF_INET, error as SocketError, SOCK_STREAM, socket
 from sys import stderr
 from threading import Thread
 from time import gmtime, strftime, time
+from traceback import print_exc
 from werkzeug.serving import make_server
+
+s3_owner = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+s3_display_name = 's3test'
 
 def find_open_port(port_range=(1024, 32767)):
     """
@@ -79,7 +83,8 @@ class InMemoryAWSServer(Thread):
         try:
             verifier.verify()
         except InvalidSignatureError as e:
-            print(str(e), file=stderr)
+            # Uncomment if debugging signature issues.
+            # print_exc()
             return make_response(json_dumps(
                 {"__type": "AuthFailure",
                  "message": "Invalid signature"}), UNAUTHORIZED)

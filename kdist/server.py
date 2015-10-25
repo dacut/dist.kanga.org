@@ -173,52 +173,91 @@ class Handler(object):
         self.server.shutdown_signal = True
         return self.create_response({"exiting": True})
 
-def read_credentials_from_s3(s3_url, kms, s3):
-    """
-    read_credentials_from_s3(s3_url, kms, s3) -> dict
+class Server(object):
+    def __init__(self, credential_store, port, region, profile_name=None,
+                 kms_host=None, kms_port=None, s3_host=None, s3_port=None,
+                 s3_secure=True, kms_secure=True, aws_access_key_id=None,
+                 aws_secret_access_key=None):
+        from werkzeug.serving import make_server
+        
+        super(Server, self).__init__()
+        self.port = port
 
-    Read access-key/secret-key map from the specified S3 URL (in the form
-    s3://bucket/key).
-    """
-    assert s3_url.startswith("s3://")
-    try:
-        bucket_name, key_name = s3_url[5:].split("/", 1)
-    except:
-        raise ValueError("Invalid S3 URL: %s" % s3_url)
+        if credential_store.startswith("s3://"):
+            kms = boto.kms.connect_to_region(
+                region, profile_name=profile_name, host=kms_host,
+                port=kms_port, is_secure=kms_secure,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key)
+            kms.auth_region_name = region
+            kms.auth_service_name = "kms"
+            
+            s3 = boto.s3.connect_to_region(
+                region, profile_name=profile_name,
+                calling_format=OrdinaryCallingFormat(), host=s3_host,
+                port=s3_port, is_secure=s3_secure,
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key)
 
-    enc = S3ClientEncryptionHandler(kms)
-    bucket = s3.get_bucket(bucket_name)
-    key = s3.get_key(key_name)
-
-    data = enc.read(key)
-    return read_credentials_from_stream(cStringIO(data))
-
-def read_credentials_from_file(filename):
-    with open(filename, "r") as fd:
-        return read_credentials_from_stream(fd)
-
-def read_credentials_from_stream(fd):
-    result = {}
+            self.read_credentials_from_s3(credential_store, kms, s3)
+        else:
+            self.read_credentials_from_file(credential_store)
     
-    for line in fd:
-        line = line.strip()
-        if line.startswith("#") or len(line) == 0:
-            continue
+        self.app = Flask("kdist.server")
+        self.handler = Handler(self.app, region, keymap=self.credentials)
+        self.handler.server = make_server(
+            "", self.port, self.app, threaded=True)
 
-        access_key, secret_key = line.split()
-        result[access_key] = secret_key
+    def run(self):
+        self.handler.server.serve_forever()
+    
+    def read_credentials_from_s3(self, s3_url, kms, s3):
+        """
+        read_credentials_from_s3(s3_url, kms, s3) -> dict
 
-    return result
+        Read access-key/secret-key map from the specified S3 URL (in the form
+        s3://bucket/key).
+        """
+        assert s3_url.startswith("s3://")
+        try:
+            bucket_name, key_name = s3_url[5:].split("/", 1)
+        except:
+            raise ValueError("Invalid S3 URL: %s" % s3_url)
 
-def run_server():
+        enc = S3ClientEncryptionHandler(kms)
+        bucket = s3.get_bucket(bucket_name)
+        key = bucket.get_key(key_name)
+
+        data = enc.read(key)
+        self.read_credentials_from_stream(cStringIO(data))
+
+    def read_credentials_from_file(self, filename):
+        with open(filename, "r") as fd:
+            self.read_credentials_from_stream(fd)
+
+    def read_credentials_from_stream(self, fd):
+        self.credentials = {}
+    
+        for line in fd:
+            line = line.strip()
+            if line.startswith("#") or len(line) == 0:
+                continue
+
+            access_key, secret_key = line.split()
+            self.credentials[access_key] = secret_key
+
+def run_server(args=None):
     credential_store = None
     port = 80
     profile_name = None
     region = None
 
+    if args is None:
+        args = argv[1:]
+
     try:
         opts, args = getopt(
-            argv[1:], "C:hk:p:P:r:",
+            args, "C:hp:P:r:",
             ["credential-store=", "help", "port=", "profile=", "region="])
     except GetoptError as e:
         print(str(e), file=stderr)
@@ -249,35 +288,19 @@ def run_server():
             server_usage()
             return 1
 
-    if credential_store.startswith("s3://"):
-        kms = boto.kms.connect_to_region(
-            region=region, profile_name=profile_name)
-        s3 = boto.s3.connect_to_region(
-            region=region, profile_name=profile_name,
-            calling_format=OrdinaryCallingFormat())
-        try:
-            credentials = read_credentials_from_s3(credential_store, kms, s3)
-        except Exception as e:
-            print(str(e), file=stderr)
-            return 1
-    elif credential_store is not None:
-        credentials = read_credentials_from_file(credential_store)
-    else:
+    if credential_store is None:
         print("--credential-store must be specified", file=stderr)
         server_usage()
         return 1
-    
+
     if len(args) > 0:
         print("Unknown argument %s" % args[0], file=stderr)
         server_usage()
         return 1
-
-    app = Flask("kdist.server")
-    handler = Handler(app, region, keymap=credentials)
-    from werkzeug.serving import make_server
-    handler.server = make_server("", port, app, threaded=True)
-    handler.server.serve_forever()
-
+    
+    server = Server(credential_store, port=port, profile_name=profile_name,
+                    region=region)
+    server.run()
     return 0
 
 def server_usage(fd=stderr):
