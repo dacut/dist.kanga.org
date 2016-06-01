@@ -4,6 +4,7 @@ import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from boto.s3.key import Key
 from cgi import escape as escape_html
+from six import iteritems
 from six.moves import cStringIO as StringIO
 from six.moves.html_entities import entitydefs
 from six.moves.urllib.parse import quote as url_quote
@@ -85,10 +86,10 @@ alt="[%(suffix_type)s]"></td>\
 
         # If this is a subdirectory, create a link back to the parent.
         if self.dir_name:
-            parent_dirname = ("/" + dir_name).rsplit("/", 1)[0]
+            parent_dirname = ("/" + self.dir_name).rsplit("/", 1)[0]
             html.write(self.parent_backlink % locals())
 
-        for subdir_name, subdir in sorted(self.subdirs.iteritems()):
+        for subdir_name, subdir in sorted(iteritems(self.subdirs)):
             subdir_link = escape_html(url_quote(
                 self.dir_name + "/" + subdir_name if self.dir_name
                 else subdir_name))
@@ -96,14 +97,15 @@ alt="[%(suffix_type)s]"></td>\
 
             html.write(self.subdir_link % locals())
 
-        for filename, key in sorted(self.contents):
+        for filename, key in sorted(iteritems(self.contents)):
             ext = splitext(filename)[-1]
             icon_name = self.icons.get(ext, "binary.png")
-            suffixtype = self.suffix_types.get(ext, "   ")
+            suffix_type = self.suffix_types.get(ext, "   ")
             file_link = escape_html(url_quote(key.name))
             filename = escape_html(filename)
             last_modified = escape_html(key.last_modified)
             size = str(key.size)
+            description = ""
 
             html.write(self.file_link % locals())
 
@@ -150,7 +152,7 @@ class S3StaticWebsiteIndexer(object):
             # Write a subdirectory entry into each parent directory as needed.
             while dir_name != "":
                 parent_dirname, tail = split_path(dir_name)
-                parent = self.dirs.get(parent_dir)
+                parent = self.dirs.get(parent_dirname)
 
                 if parent is None:
                     parent = Directory(parent_dirname)

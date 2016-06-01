@@ -4,6 +4,8 @@ from os.path import exists
 from re import compile as re_compile
 from subprocess import PIPE, Popen
 
+from .logging import log
+
 id_regex = re_compile(r'^\s*ID=(?:"([^"]*)"|([^ ]*))\s*$')
 version_regex = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
 _linux_dist = None
