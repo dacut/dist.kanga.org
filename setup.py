@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from setuptools import setup, Command
-
 import logging
+from setuptools import setup
+
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("nose").setLevel(logging.DEBUG)
 
@@ -38,6 +38,6 @@ setup(
         'Programming Language :: Python',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
-    keywords = ['repository', 'distribution', 'yum'],
+    keywords=['repository', 'distribution', 'yum'],
     zip_safe=False,
 )
