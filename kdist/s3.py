@@ -23,14 +23,14 @@ _x_amz_wrap_alg = "x-amz-wrap-alg"
 
 class EncryptionError(RuntimeError):
     """
-    Exception raised if an error occurs during an S3 encryption or 
+    Exception raised if an error occurs during an S3 encryption or
     decryption operation.
     """
     pass
 
 class S3ClientEncryptionHandler(object):
     """
-    When stored in S3, the following metadata is stored on the object 
+    When stored in S3, the following metadata is stored on the object
     (and is compatible with the Java SDK):
         x-amz-cek-alg   The algorithm used to encrypt.  This must be
                         "AES/CBC/PKCS5Padding".
@@ -51,7 +51,7 @@ class S3ClientEncryptionHandler(object):
         self.kms = kms
         self.key_id = key_id
         return
-    
+
     def read(self, key):
         encrypted_data = key.read()
         wrapper_alg = key.get_metadata(_x_amz_wrap_alg)
@@ -102,12 +102,15 @@ class S3ClientEncryptionHandler(object):
         key_name = "s3://%s/%s" % (key.bucket.name, key.name)
         random = Crypto.Random.new()
 
+        if key_id is None:
+            key_id = self.key_id
+
         # Encryption metadata headers for the S3 object
         s3_headers = {
             _x_amz_meta_ + _x_amz_wrap_alg: wrapper_algorithm,
             _x_amz_meta_ + _x_amz_cek_alg: encryption_algorithm,
         }
-        
+
         # Create a cipher and pad the metadata as needed.
         if encryption_algorithm in (_AES_CBC_PKCS5Padding,):
             # Create an IV; needed to scramble the data.
@@ -116,7 +119,7 @@ class S3ClientEncryptionHandler(object):
 
             if wrapper_algorithm == _kms:
                 # Call KMS to generate a data key
-                encryption_context = { _kms_cmk_id: key_id }
+                encryption_context = {_kms_cmk_id: key_id}
                 try:
                     dk_result = self.kms.generate_data_key(
                         key_id=self.key_id,
@@ -151,8 +154,8 @@ class S3ClientEncryptionHandler(object):
         else:
             raise EncryptionError(
                 "%s: Unknown encryption algorithm %s" %
-            (key_name, encryption_algorithm))
-        
+                (key_name, encryption_algorithm))
+
         if headers is not None:
             s3_headers.update(headers)
 
@@ -171,7 +174,7 @@ class S3ClientEncryptionHandler(object):
             raise EncryptionError(
                 "%s: Metadata entry %s is not valid JSON" %
                 (key_name, _x_amz_matdesc))
-        
+
         cmk_id = material_desc.get(_kms_cmk_id)
         if cmk_id is None:
             raise EncryptionError(
@@ -186,10 +189,10 @@ class S3ClientEncryptionHandler(object):
             raise EncryptionError(
                 "%s: KMS decryption failure: %s" % (key_name, e))
 
-        
-            
-        
-        
+
+
+
+
 # Local variables:
 # mode: Python
 # tab-width: 8
