@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from .platform import get_os_version
+from kdist.platform import get_os_version
 
-class Distribution(object):
+class Distribution(object): # pylint: disable=R0903
     """
     Mixin class for providing objects with distribution-related resources.
     """
