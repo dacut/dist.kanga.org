@@ -4,9 +4,9 @@ from boto.exception import S3ResponseError
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
-from os import makedirs
+from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
-from sys import exit # pylint: disable=W0622
+from sys import exit
 from tempfile import gettempdir
 from urllib2 import urlopen
 
@@ -38,6 +38,7 @@ class Package(Distribution):
             self.has_diffs = self.has_diffs_rpm
             self.upload = self.upload_rpm
             self.srpm_name = self.rpm_name = None
+            self.topdir = getenv("HOME") + "/rpmbuild"
         # elif self.linux_dist in ("debian", "ubuntu"):
         #     self.get_latest = self.get_latest_deb
         #     self.build = self.build_deb
@@ -69,8 +70,16 @@ class Package(Distribution):
         """
         spec_data = {}
         spec_file_in = "SPECS/%s.spec.%s.in" % (self.name, self.linux_dist)
-        spec_file_out = "SPECS/%s.spec.%s" % (self.name, self.linux_dist)
+        spec_file_out = "%s/SPECS/%s.spec.%s" % (self.topdir, self.name,
+                                                 self.linux_dist)
 
+        # Create rpmbuild directories
+        for dirname in ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS",
+                        "SRPMS"):
+            path = "%s/%s" % (self.topdir, dirname)
+            if not exists(path):
+                makedirs(path)
+            
         if self.last_build is None:
             self.build = 0
         else:
@@ -104,7 +113,7 @@ class Package(Distribution):
         source_id = 0
         while "Source%d" % source_id in spec_data:
             source = spec_data["Source%d" % source_id]
-            dest = "SOURCES/" + basename(source)
+            dest = self.topdir + "/SOURCES/" + basename(source)
             self.download(source, dest)
             source_id += 1
 
@@ -121,7 +130,9 @@ class Package(Distribution):
         # Install any necessary package prerequisites
         pkg_list = spec_data.get("BuildRequires", "").strip().split()
         invoke("sudo", "yum", "-y", "install", *pkg_list)
-        invoke("rpmbuild", "-ba", spec_file_out)
+        invoke("rpmbuild", "--define", "_topdir " + self.topdir, "-ba",
+               spec_file_out)
+        return
 
     def get_latest_rpm(self):
         """
@@ -149,21 +160,21 @@ class Package(Distribution):
             log.debug("Candidate found: %s", rpm_candidate)
 
         if self.last_build is not None:
-            if not exists("RPMS/x86_64"):
-                makedirs("RPMS/x86_64")
-            filename = "RPMS/x86_64/" + last_key.name.rsplit("/", 1)[1]
+            if not exists(self.topdir + "/RPMS/x86_64"):
+                makedirs(self.topdir + "/RPMS/x86_64")
+            filename = self.topdir + "/RPMS/x86_64/" + last_key.name.rsplit("/", 1)[1]
             log.debug("Retrieving %s", last_key.name)
             last_key.get_contents_to_filename(filename)
             self.last_package = filename
             log.debug("Last build downloaded to %s", filename)
 
             # Attempt to download the SRPM too
-            if not exists("SRPMS"):
-                makedirs("SRPMS")
+            if not exists(self.topdir + "/SRPMS"):
+                makedirs(self.topdir + "/SRPMS")
             srpm_name = "%s-%s-%d%s.src.rpm" % (
                 self.name, self.version, self.last_build, self.dist_suffix)
             srpm_key = self.bucket.new_key(self.source_s3_prefix + srpm_name)
-            filename = "SRPMS/" + srpm_name
+            filename = self.topdir + "/SRPMS/" + srpm_name
 
             log.debug("Attempting to retrieve SRPM %s", srpm_key.name)
             try:
@@ -188,8 +199,8 @@ class Package(Distribution):
             return True
 
         return (
-            self.diff_rpm(self.last_package, "RPMS/x86_64/" + self.rpm_name) or
-            self.diff_rpm(self.last_source, "SRPMS/" + self.srpm_name,
+            self.diff_rpm(self.last_package, self.topdir + "/RPMS/x86_64/" + self.rpm_name) or
+            self.diff_rpm(self.last_source, self.topdir + "/SRPMS/" + self.srpm_name,
                           ignore_spec=True))
 
     def upload_rpm(self):
@@ -200,14 +211,17 @@ class Package(Distribution):
         """
         key_name = self.binary_s3_prefix + self.rpm_name
         key = self.bucket.new_key(key_name)
+        log.info("Uploading %s to %s", self.rpm_name, key_name)
         key.set_contents_from_filename(
-            "RPMS/x86_64/" + self.rpm_name, reduced_redundancy=True,
+            self.topdir + "/RPMS/x86_64/" + self.rpm_name,
+            reduced_redundancy=True,
             policy='public-read')
 
         key_name = self.source_s3_prefix + self.srpm_name
         key = self.bucket.new_key(key_name)
+        log.info("Uploading %s to %s", self.srpm_name, key_name)
         key.set_contents_from_filename(
-            "SRPMS/" + self.srpm_name, reduced_redundancy=True,
+            self.topdir + "/SRPMS/" + self.srpm_name, reduced_redundancy=True,
             policy='public-read')
 
         return
@@ -260,6 +274,9 @@ class Package(Distribution):
         # Note: We can't use rpmdiff -- it diffs the Provides header
         # unconditionally, so it always indicates the RPMs differ.
 
+        rpm_basename_1 = basename(rpm_filename_1)
+        rpm_basename_2 = basename(rpm_filename_2)
+
         if isdir("/usr/share/rpmlint"):
             import site
             site.addsitedir("/usr/share/rpmlint")
@@ -270,7 +287,7 @@ class Package(Distribution):
             RPMTAG_POSTIN, RPMTAG_POSTTRANS, RPMTAG_POSTUN, RPMTAG_PREIN,
             RPMTAG_PRETRANS, RPMTAG_PREUN, RPMTAG_SUMMARY, RPMTAG_URL)
 
-        log.debug("diff_rpm: %s vs %s", rpm_filename_1, rpm_filename_2)
+        log.debug("diff_rpm: %s vs %s", rpm_basename_1, rpm_basename_2)
 
         tmpdir = gettempdir()
         rpm1 = Pkg(rpm_filename_1, tmpdir).header
@@ -304,17 +321,21 @@ class Package(Distribution):
             rpm1_hdata = set(zip(rpm1_values, rpm1_flags, rpm1_versions))
             rpm2_hdata = set(zip(rpm2_values, rpm2_flags, rpm2_versions))
 
-            log.info("header_name=%r, rpm1_hdata=%r, rpm2_hdata=%r",
+            log.debug("header_name=%r, rpm1_hdata=%r, rpm2_hdata=%r",
                      header_name, rpm1_hdata, rpm2_hdata)
 
             # Make sure each item is present in the other.
             for entry in rpm1_hdata:
                 if entry not in rpm2_hdata:
+                    log.debug("Present in %s, missing in %s: %s",
+                              rpm_basename_1, rpm_basename_2, entry)
                     return True
-
+                
             for entry in rpm2_hdata:
                 if entry not in rpm1_hdata:
                     return True
+                    log.debug("Missing in %s, present in %s: %s",
+                              rpm_basename_1, rpm_basename_2, entry)
 
         # All tags and headers are equal.  Compare file metadata.
         # fiFromHeader() returns a file metadata iterator; the fields returned
@@ -332,7 +353,7 @@ class Package(Distribution):
 
             if metadata2 is None:
                 log.debug("File %s is missing from %s", filename,
-                          rpm_filename_2)
+                          rpm_basename_2)
                 return True
 
             if ignore_spec and (
@@ -341,7 +362,8 @@ class Package(Distribution):
 
             if (metadata1[:2] != metadata2[:2] or
                     metadata1[3:] != metadata2[3:]):
-                log.debug("File %s metadata differs", filename)
+                log.debug("File %s metadata differs: %s vs %s", filename,
+                          metadata1, metadata2)
                 return True
 
         # Only need to check for existence in rpm1_files; common files have
@@ -349,7 +371,7 @@ class Package(Distribution):
         for filename in rpm2_files.iterkeys():
             if rpm1_files.get(filename) is None:
                 log.debug("File %s is missing from %s", filename,
-                          rpm_filename_1)
+                          rpm_basename_1)
                 return True
 
         log.debug("RPMs are equivalent")
