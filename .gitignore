@@ -9,3 +9,4 @@ dist.kanga.org.egg-info
 htmlcov
 build
 javacompat/target/*
+local/*
