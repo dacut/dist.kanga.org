@@ -4,12 +4,12 @@ from os.path import exists
 from re import compile as re_compile
 from subprocess import PIPE, Popen
 
-from .logging import log
+from kdist.logging import log
 
-id_regex = re_compile(r'^\s*ID=(?:"([^"]*)"|([^ ]*))\s*$')
-version_regex = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
-_linux_dist = None
-_dist_version = None
+ID_REGEX = re_compile(r'^\s*ID=(?:"([^"]*)"|([^ ]*))\s*$')
+VERSION_REGEX = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
+_linux_dist = None      # pylint: disable=C0103
+_dist_version = None    # pylint: disable=C0103
 
 def get_os_version():
     """
@@ -17,7 +17,7 @@ def get_os_version():
 
     Return the Linux distribution and version as a pair of strings.
     """
-    global _linux_dist, _dist_version
+    global _linux_dist, _dist_version   # pylint: disable=C0103,W0603
 
     if _linux_dist is None or _dist_version is None:
         if not exists("/etc/os-release"):
@@ -25,14 +25,14 @@ def get_os_version():
 
         with open("/etc/os-release", "r") as fd:
             for line in fd:
-                m = id_regex.match(line)
+                m = ID_REGEX.match(line)
                 if m:
                     if m.group(1):
                         _linux_dist = m.group(1)
                     else:
                         _linux_dist = m.group(2)
 
-                m = version_regex.match(line)
+                m = VERSION_REGEX.match(line)
                 if m:
                     if m.group(1):
                         _dist_version = m.group(1)
@@ -51,8 +51,8 @@ def get_os_version():
 def invoke(*cmd, **kw):
     """
     invoke(*cmd)
-    
-    Invoke a command, logging stdout and stderr to syslog 
+
+    Invoke a command, logging stdout and stderr to syslog
     """
     suppress_output = kw.pop("suppress_output", False)
     return_all = kw.pop("return_all", False)
@@ -77,7 +77,7 @@ def invoke(*cmd, **kw):
             log.warning("stderr:")
             for line in err.split("\n"):
                 log.warning("%s", line)
-    
+
     if return_all:
         return (proc.returncode, out, err)
 
@@ -92,7 +92,7 @@ def invoke(*cmd, **kw):
                    (cmd, proc.returncode))
             log.info(msg)
 
-    return (proc.returncode == 0)
+    return proc.returncode == 0
 
 # Local variables:
 # mode: Python
