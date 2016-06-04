@@ -4,15 +4,15 @@ from boto.exception import S3ResponseError
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from csv import reader as csv_reader
-from os import getenv, makedirs
+from os import makedirs
 from os.path import basename, dirname, exists, isdir
-from sys import exit
+from sys import exit # pylint: disable=W0622
 from tempfile import gettempdir
 from urllib2 import urlopen
 
-from .distribution import Distribution
-from .logging import log
-from .platform import invoke
+from kdist.distribution import Distribution
+from kdist.logging import log
+from kdist.platform import invoke
 
 class Package(Distribution):
     """
@@ -37,14 +37,15 @@ class Package(Distribution):
             self.build = self.build_rpm
             self.has_diffs = self.has_diffs_rpm
             self.upload = self.upload_rpm
-        elif self.linux_dist in ("debian", "ubuntu"):
-            self.get_latest = self.get_latest_deb
-            self.build = self.build_deb
-            self.has_diffs = self.has_diffs_deb
-            self.upload = self.upload_deb
+            self.srpm_name = self.rpm_name = None
+        # elif self.linux_dist in ("debian", "ubuntu"):
+        #     self.get_latest = self.get_latest_deb
+        #     self.build = self.build_deb
+        #     self.has_diffs = self.has_diffs_deb
+        #     self.upload = self.upload_deb
         else:
             raise NotImplementedError(
-                "Cannot build for distribution %r" % linux_dist)
+                "Cannot build for distribution %r" % self.linux_dist)
 
         self.binary_s3_prefix = self.dist_prefix + "RPMS/x86_64/"
         self.source_s3_prefix = self.dist_prefix + "SRPMS/"
@@ -56,9 +57,10 @@ class Package(Distribution):
 
         # Open the bucket for the distribution.
         self.bucket = self.s3.get_bucket(self.bucket_name)
-        
+
         return
 
+    # pylint: disable=R0914
     def build_rpm(self):
         """
         pkg.build_rpm()
@@ -75,10 +77,12 @@ class Package(Distribution):
             self.build = self.last_build + 1
 
         with open(spec_file_in, "r") as ifd:
+            # Replace the kanga build version.
             output = ifd.read().replace("%{kanga_build}", str(self.build))
             with open(spec_file_out, "w") as ofd:
                 ofd.write(output)
 
+            # Parse the spec file for build variables.
             ifd.seek(0, 0)
             for line in ifd:
                 if line.startswith("%"):
@@ -88,13 +92,15 @@ class Package(Distribution):
                     continue
                 key, value = line.split(":", 1)
                 spec_data[key] = value
-        
+
+        # If Source is present, rename it to Source0.
         if "Source" in spec_data:
             if "Source0" in spec_data:
                 raise ValueError(
                     "SPEC file cannot declare both Source and Source0")
             spec_data["Source0"] = spec_data["Source"]
 
+        # Download all source files.
         source_id = 0
         while "Source%d" % source_id in spec_data:
             source = spec_data["Source%d" % source_id]
@@ -206,6 +212,7 @@ class Package(Distribution):
 
         return
 
+    # pylint: disable=R0201
     def download(self, source, dest):
         """
         pkg.download(source, dest)
@@ -242,6 +249,7 @@ class Package(Distribution):
 
         return results
 
+    # pylint: disable=E0401,R0911,R0912,R0914
     @classmethod
     def diff_rpm(cls, rpm_filename_1, rpm_filename_2, ignore_spec=False):
         """
@@ -255,6 +263,7 @@ class Package(Distribution):
         if isdir("/usr/share/rpmlint"):
             import site
             site.addsitedir("/usr/share/rpmlint")
+
         from Pkg import Pkg
         from rpm import (
             RPMTAG_DESCRIPTION, RPMTAG_GROUP, RPMTAG_LICENSE, RPMTAG_NAME,
@@ -327,11 +336,11 @@ class Package(Distribution):
                 return True
 
             if ignore_spec and (
-                filename.endswith(".spec") or ".spec." in filename):
+                    filename.endswith(".spec") or ".spec." in filename):
                 continue
 
             if (metadata1[:2] != metadata2[:2] or
-                metadata1[3:] != metadata2[3:]):
+                    metadata1[3:] != metadata2[3:]):
                 log.debug("File %s metadata differs", filename)
                 return True
 
@@ -367,7 +376,7 @@ def localbuild():
             else:
                 log.info("Build %d is the same as previous build %d; skipping "
                          "upload.", package.build, package.last_build)
-    except Exception as e:
+    except: # pylint: disable=W0702
         log.error("localbuild failed", exc_info=True)
         return 1
     else:
@@ -375,4 +384,4 @@ def localbuild():
         return 0
 
 if __name__ == "__main__":
-    exit(main())
+    exit(localbuild())
