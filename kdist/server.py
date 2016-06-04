@@ -1,15 +1,13 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from base64 import b64decode, b64encode
-from boto.exception import BotoClientError, BotoServerError
+import boto.utils
 import boto.kms
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
 from flask import abort, Flask, make_response, request
 from getopt import getopt, GetoptError
 import hashlib
-import hmac
-from httplib import BAD_REQUEST, INTERNAL_SERVER_ERROR, UNAUTHORIZED
+from httplib import BAD_REQUEST, UNAUTHORIZED
 from json import dumps as json_dumps
 from kdist.s3 import S3ClientEncryptionHandler
 from kdist.sigv4 import AWSSigV4Verifier, InvalidSignatureError
@@ -24,7 +22,6 @@ _metadata = None
 def get_instance_metadata(): # pragma: no cover
     global _metadata
     if _metadata is None:
-        import boto.utils
         _metadata = boto.utils.get_instance_metadata()
     return _metadata
 
@@ -36,15 +33,15 @@ class Handler(object):
     default_path = (
         "/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/sbin:"
         "/opt/aws/bin")
-    
+
     service = "kdist"
 
-    def __init__(self, app, region, service=None, keymap={}):
+    def __init__(self, app, region, service=None, keymap=None):
         super(Handler, self).__init__()
         self.app = app
         self.region = region
-        if service is not None: self.service = service
-        self.keymap = keymap
+        self.service = service
+        self.keymap = keymap if keymap is not None else {}
         self.server = None
 
         app.before_request(self.validate_message)
@@ -56,15 +53,15 @@ class Handler(object):
         """
         Verify the message signature.  We use the AWS Sigv4 algorithm here.
         """
-        
+
         # Refuse to verify requests larger than the maximum we're willing
         # to handle.
         body = request.stream.read(self.max_request_size + 1)
         if len(body) > self.max_request_size:
             abort(BAD_REQUEST)
-        
+
         # Cache the body so we can decode it later on.
-        request._cached_data = body
+        request._cached_data = body #pylint: disable=W0212
 
         # Verify the signature.
         verifier = AWSSigV4Verifier(
@@ -90,7 +87,7 @@ class Handler(object):
     def create_response(self, data):
         if not isinstance(data, string_types):
             data = json_dumps(data)
-        
+
         response = make_response(data)
         response.headers["Content-Type"] = "application/json"
         response.headers["ETag"] = '"' + hashlib.sha256(data).hexdigest() + '"'
@@ -110,17 +107,17 @@ class Handler(object):
         stdin = data.get("stdin", "")
 
         if (not isinstance(cmdline, (list, tuple)) or
-            len(cmdline) == 0 or
-            not all([isinstance(arg, string_types) for arg in cmdline])):
+                len(cmdline) == 0 or
+                not all([isinstance(arg, string_types) for arg in cmdline])):
             self.app.logger.warning("execute: invalid command line: %r",
                                     cmdline)
             abort(BAD_REQUEST)
 
         if (not isinstance(env, dict) or
-            not all([(isinstance(key, string_types) and
-                      isinstance(value, string_types) and
-                      len(key) > 0)
-                     for key, value in env.iteritems()])):
+                not all([(isinstance(key, string_types) and
+                          isinstance(value, string_types) and
+                          len(key) > 0)
+                         for key, value in env.iteritems()])):
             self.app.logger.warning("execute: invalid environment: %r", env)
             abort(BAD_REQUEST)
 
@@ -156,10 +153,12 @@ class Handler(object):
         env.setdefault("PATH", self.default_path)
         env.setdefault("PWD", pwd)
         env.setdefault("SHLVL", "1")
-        
+
         try:
-            if uid != 0: seteuid(uid)
-            if gid != 0: setegid(gid)
+            if uid != 0:
+                seteuid(uid)
+            if gid != 0:
+                setegid(gid)
 
             proc = Popen(cmdline, stdin=PIPE, stdout=PIPE, stderr=PIPE,
                          close_fds=True, shell=False, cwd=pwd, env=env)
@@ -191,7 +190,7 @@ class Server(object):
                  s3_secure=True, kms_secure=True, aws_access_key_id=None,
                  aws_secret_access_key=None):
         from werkzeug.serving import make_server
-        
+
         super(Server, self).__init__()
         self.port = port
 
@@ -203,7 +202,7 @@ class Server(object):
                 aws_secret_access_key=aws_secret_access_key)
             kms.auth_region_name = region
             kms.auth_service_name = "kms"
-            
+
             s3 = boto.s3.connect_to_region(
                 region, profile_name=profile_name,
                 calling_format=OrdinaryCallingFormat(), host=s3_host,
@@ -214,15 +213,17 @@ class Server(object):
             self.read_credentials_from_s3(credential_store, kms, s3)
         else:
             self.read_credentials_from_file(credential_store)
-    
+
         self.app = Flask("kdist.server")
         self.handler = Handler(self.app, region, keymap=self.credentials)
         self.handler.server = make_server(
             "", self.port, self.app, threaded=True)
+        self.credentials = None
+        return
 
     def run(self):
         self.handler.server.serve_forever()
-    
+
     def read_credentials_from_s3(self, s3_url, kms, s3):
         """
         read_credentials_from_s3(s3_url, kms, s3) -> dict
@@ -249,7 +250,7 @@ class Server(object):
 
     def read_credentials_from_stream(self, fd):
         self.credentials = {}
-    
+
         for line in fd:
             line = line.strip()
             if line.startswith("#") or len(line) == 0:
@@ -285,7 +286,7 @@ def run_server(args=None): # pragma: no cover
         elif opt in ("-P", "--port"):
             try:
                 port = int(value)
-                if not (0 < port < 65536):
+                if not 0 < port < 65536:
                     raise ValueError()
             except ValueError:
                 print("Invalid port value %s" % value, file=stderr)
@@ -309,7 +310,7 @@ def run_server(args=None): # pragma: no cover
         print("Unknown argument %s" % args[0], file=stderr)
         server_usage()
         return 1
-    
+
     server = Server(credential_store, port=port, profile_name=profile_name,
                     region=region)
     server.run()

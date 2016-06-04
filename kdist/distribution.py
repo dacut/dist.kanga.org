@@ -2,7 +2,7 @@
 from __future__ import absolute_import, division, print_function
 from kdist.platform import get_os_version
 
-class Distribution(object): # pylint: disable=R0903
+class Distribution(object):
     """
     Mixin class for providing objects with distribution-related resources.
     """

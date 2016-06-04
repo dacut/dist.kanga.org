@@ -8,8 +8,8 @@ from kdist.logging import log
 
 ID_REGEX = re_compile(r'^\s*ID=(?:"([^"]*)"|([^ ]*))\s*$')
 VERSION_REGEX = re_compile(r'^\s*VERSION=(?:"([^"]*)"|([^ ]*))\s*$')
-_linux_dist = None      # pylint: disable=C0103
-_dist_version = None    # pylint: disable=C0103
+_linux_dist = None
+_dist_version = None
 
 def get_os_version():
     """
@@ -17,7 +17,7 @@ def get_os_version():
 
     Return the Linux distribution and version as a pair of strings.
     """
-    global _linux_dist, _dist_version   # pylint: disable=C0103,W0603
+    global _linux_dist, _dist_version
 
     if _linux_dist is None or _dist_version is None:
         if not exists("/etc/os-release"):
