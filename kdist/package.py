@@ -61,7 +61,6 @@ class Package(Distribution):
 
         return
 
-    # pylint: disable=R0914
     def build_rpm(self):
         """
         pkg.build_rpm()
@@ -226,7 +225,6 @@ class Package(Distribution):
 
         return
 
-    # pylint: disable=R0201
     def download(self, source, dest):
         """
         pkg.download(source, dest)
@@ -263,7 +261,7 @@ class Package(Distribution):
 
         return results
 
-    # pylint: disable=E0401,R0911,R0912,R0914
+    # pylint: disable=E0401
     @classmethod
     def diff_rpm(cls, rpm_filename_1, rpm_filename_2, ignore_spec=False):
         """
@@ -398,7 +396,7 @@ def localbuild():
             else:
                 log.info("Build %d is the same as previous build %d; skipping "
                          "upload.", package.build, package.last_build)
-    except: # pylint: disable=W0702
+    except:
         log.error("localbuild failed", exc_info=True)
         return 1
     else:

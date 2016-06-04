@@ -61,7 +61,7 @@ class Handler(object):
             abort(BAD_REQUEST)
 
         # Cache the body so we can decode it later on.
-        request._cached_data = body #pylint: disable=W0212
+        request._cached_data = body
 
         # Verify the signature.
         verifier = AWSSigV4Verifier(

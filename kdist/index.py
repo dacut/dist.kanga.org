@@ -78,7 +78,6 @@ alt="[%(suffix_type)s]"></td>\
         self.subdirs[name] = directory
         return
 
-    # pylint: disable=W0612,R0914
     def generate_index(self):
         display_name = escape_html(self.dir_name if self.dir_name else "/")
         html = StringIO()
