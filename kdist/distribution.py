@@ -19,11 +19,11 @@ class Distribution(object):
 
     dist_suffixes = {
         'amzn': {
-            "2014.09": ".amzn1",
-            "2015.03": ".amzn1",
-            "2015.09": ".amzn1",
+            "default": ".amzn1",
         },
     }
+
+    rolling_release_dists = { "amzn" }
 
     def __init__(self, s3_region=None, bucket_name=None):
         super(Distribution, self).__init__()
@@ -34,10 +34,18 @@ class Distribution(object):
 
         self.linux_dist, self.dist_version = get_os_version()
         self.os_prefix = self.os_prefixes[self.linux_dist] + "/"
-        self.dist_prefix = self.os_prefix + self.dist_version + "/"
-        self.dist_suffix = self.dist_suffixes.get(self.linux_dist, "")
-        if isinstance(self.dist_suffix, dict):
-            self.dist_suffix = self.dist_suffix.get(self.dist_version, "")
+        if self.linux_dist in self.rolling_release_dists:
+            # On rolling release OSes, it doesn't make as much sense to include
+            # the version in the dist_prefix.
+            self.dist_prefix = self.os_prefix
+        else:
+            self.dist_prefix = self.os_prefix + self.dist_version + "/"
+        suffixes = self.dist_suffixes[self.linux_dist]
+
+        if self.dist_version in suffixes:
+            self.dist_suffix = suffixes[self.dist_version]
+        else:
+            self.dist_suffix = suffixes["default"]
 
         return
 
