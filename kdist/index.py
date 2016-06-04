@@ -2,15 +2,14 @@
 from __future__ import absolute_import, print_function
 import boto.s3
 from boto.s3.connection import OrdinaryCallingFormat
-from boto.s3.key import Key
 from cgi import escape as escape_html
-from six import iteritems
-from six.moves import cStringIO as StringIO
-from six.moves.html_entities import entitydefs
-from six.moves.urllib.parse import quote as url_quote
 from getopt import getopt, GetoptError
 from os.path import split as split_path, splitext
-from sys import argv, exit, stderr, stdout
+from six import iteritems
+from six.moves import cStringIO as StringIO
+from six.moves.urllib.parse import quote as url_quote #pylint: disable=E0401
+from sys import argv, stderr, stdout
+
 
 class Directory(object):
     header = """\
@@ -79,6 +78,7 @@ alt="[%(suffix_type)s]"></td>\
         self.subdirs[name] = directory
         return
 
+    # pylint: disable=W0612,R0914
     def generate_index(self):
         display_name = escape_html(self.dir_name if self.dir_name else "/")
         html = StringIO()
@@ -113,16 +113,18 @@ alt="[%(suffix_type)s]"></td>\
 
         return html.getvalue()
 
+
 class S3StaticWebsiteIndexer(object):
     bucket = "dist.kanga.org"
     profile = None
     region = "us-west-2"
 
+
     def __init__(self, region, bucket, profile):
         super(S3StaticWebsiteIndexer, self).__init__()
-        if region: self.region = region
-        if bucket: self.bucket = bucket
-        if profile: self.profile = profile
+        self.region = region
+        self.bucket = bucket
+        self.profile = profile
 
         self.s3 = boto.s3.connect_to_region(
             self.region, profile_name=self.profile,
@@ -137,49 +139,59 @@ class S3StaticWebsiteIndexer(object):
         keys = list(bucket.list())
 
         for key in keys:
-            dir_name, key_basename = split_path(key.name)
-
-            if key_basename == "index.html":
-                continue
-
-            directory = self.dirs.get(dir_name)
-            if directory is None:
-                directory = Directory(dir_name)
-                self.dirs[dir_name] = directory
-
-            directory.add_content(key)
-
-            # Write a subdirectory entry into each parent directory as needed.
-            while dir_name != "":
-                parent_dirname, tail = split_path(dir_name)
-                parent = self.dirs.get(parent_dirname)
-
-                if parent is None:
-                    parent = Directory(parent_dirname)
-                    self.dirs[parent_dirname] = parent
-
-                parent.add_subdir(tail, directory)
-                
-                dir_name = parent_dirname
-                directory = parent
+            self.add_key_to_index(key)
 
         for directory in self.dirs.itervalues():
-            index_html = directory.generate_index()
+            self.write_directory_index(bucket, directory)
 
-            if directory.dir_name:
-                index_name = directory.dir_name + "/index.html"
-            else:
-                index_name = "index.html"
+        return
 
-            index = bucket.new_key(index_name)
-            index.content_type = "text/html"
-            index.content_encoding = "UTF-8"
-            index.storage_class = "REDUCED_REDUNDANCY"
-            index.set_contents_from_string(index_html, policy='public-read',
-                                           reduced_redundancy=True)
+    def add_key_to_index(self, key):
+        dir_name, key_basename = split_path(key.name)
 
-            print("Uploaded %s" % index.name)
+        if key_basename == "index.html":
+            return
 
+        directory = self.dirs.get(dir_name)
+        if directory is None:
+            directory = Directory(dir_name)
+            self.dirs[dir_name] = directory
+
+        directory.add_content(key)
+
+        # Write a subdirectory entry into each parent directory as needed.
+        while dir_name != "":
+            parent_dirname, tail = split_path(dir_name)
+            parent = self.dirs.get(parent_dirname)
+
+            if parent is None:
+                parent = Directory(parent_dirname)
+                self.dirs[parent_dirname] = parent
+
+            parent.add_subdir(tail, directory)
+
+            dir_name = parent_dirname
+            directory = parent
+
+        return
+
+    @staticmethod
+    def write_directory_index(bucket, directory):
+        index_html = directory.generate_index()
+
+        if directory.dir_name:
+            index_name = directory.dir_name + "/index.html"
+        else:
+            index_name = "index.html"
+
+        index = bucket.new_key(index_name)
+        index.content_type = "text/html"
+        index.content_encoding = "UTF-8"
+        index.storage_class = "REDUCED_REDUNDANCY"
+        index.set_contents_from_string(index_html, policy='public-read',
+                                       reduced_redundancy=True)
+
+        print("Uploaded %s" % index.name)
         return
 
 def genindexes():
@@ -233,6 +245,3 @@ Options:
 """)
     fd.flush()
     return
-
-if __name__ == "__main__":
-    exit(main(argv[1:]))
