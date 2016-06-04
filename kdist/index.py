@@ -120,10 +120,10 @@ class S3StaticWebsiteIndexer(object):
     region = "us-west-2"
 
 
-    def __init__(self, region, bucket, profile):
+    def __init__(self, region, bucket_name, profile):
         super(S3StaticWebsiteIndexer, self).__init__()
         self.region = region
-        self.bucket = bucket
+        self.bucket_name = bucket_name
         self.profile = profile
 
         self.s3 = boto.s3.connect_to_region(
@@ -135,7 +135,7 @@ class S3StaticWebsiteIndexer(object):
         return
 
     def generate_indexes(self):
-        bucket = self.s3.get_bucket(self.bucket)
+        bucket = self.s3.get_bucket(self.bucket_name)
         keys = list(bucket.list())
 
         for key in keys:
@@ -195,7 +195,7 @@ class S3StaticWebsiteIndexer(object):
         return
 
 def genindexes():
-    region = profile = bucket = None
+    region = profile = bucket_name = None
 
     try:
         opts, args = getopt(argv[1:], "b:hp:r:", [
@@ -207,7 +207,7 @@ def genindexes():
 
     for opt, value in opts:
         if opt in ("-b", "--bucket"):
-            bucket = value
+            bucket_name = value
         elif opt in ("-h", "--help"):
             usage(stdout)
             return 0
@@ -221,7 +221,7 @@ def genindexes():
         return 1
 
     indexer = S3StaticWebsiteIndexer(region=region, profile=profile,
-                                     bucket=bucket)
+                                     bucket_name=bucket_name)
     indexer.generate_indexes()
     return 0
 
