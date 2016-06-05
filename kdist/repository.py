@@ -40,6 +40,8 @@ class Repository(Distribution):
             if not exists(self.tempdir + "/" + dirname):
                 makedirs(self.tempdir + "/" + dirname)
 
+            log.debug("Downloading %s", filename)
+
             key.get_contents_to_filename(self.tempdir + "/" + filename)
 
         log.info("Download completed")
