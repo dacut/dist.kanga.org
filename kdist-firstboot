@@ -1,0 +1,46 @@
+#!/bin/bash -ex
+if [[ -r /etc/os-release ]]; then
+    . /etc/os-release
+elif [[ -r /etc/redhat-release ]]; then
+    . /etc/redhat-release
+else
+    echo "Unsupported distribution." 1>&2;
+    exit 1;
+fi;
+
+case "$ID" in
+    amzn | rhel | fedora | centos )
+        yum -y update
+        yum -y install binutils gcc git rpm-build rpm-devel rpmdevtools \
+            rpmlint rpm-python27
+        ;;
+
+    * )
+        echo "Unknown ID: $ID" 1>&2;
+        exit 1;
+esac
+
+# Add a "builder" system user/group for building the packages
+groupadd --system builder
+useradd --system --comment "Package builder" --home /home/builder \
+    --gid builder -M --shell /bin/false builder
+mkdir /home/builder
+chown builder:builder /home/builder
+
+# Clone the Git repo for dist.kanga.org and install the kdist-localbuild
+# tool.
+git clone https://github.com/dacut/dist.kanga.org.git
+cd dist.kanga.org
+./setup.py install
+
+# After rebooting, rebuild all packages and update the repository.
+cat >> /etc/rc.local <<EOF    
+su -s /bin/sh - builder -c 'cd /home/builder && kdist-localbuild && kdist-repoupdate'
+EOF
+
+# Let the system finish booting, then reboot.
+at now + 3 minutes <<EOF
+/sbin/reboot
+EOF
+
+# The end.
