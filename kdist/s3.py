@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 from base64 import b64decode, b64encode
-from boto.exception import BotoServerError
+from botocore.exceptions import ClientError
 from Crypto.Cipher import AES
 import Crypto.Random
 from json import dumps as json_dumps, loads as json_loads
+from os import unlink
+from six import string_types
 
-AES_BLOCKSIZE = 16
+AES_BLOCK_SIZE = 16
+COPY_BLOCK_SIZE = 65536
 _AES_256 = "AES_256"
 _AES_CBC_PKCS5Padding = "AES/CBC/PKCS5Padding"
 _CiphertextBlob = "CiphertextBlob"
@@ -52,15 +55,17 @@ class S3ClientEncryptionHandler(object):
         self.key_id = key_id
         return
 
-    def read(self, key):
-        encrypted_data = key.read()
-        wrapper_alg = key.get_metadata(_x_amz_wrap_alg)
-        material_desc = key.get_metadata(_x_amz_matdesc)
-        encrypted_data_key = key.get_metadata(_x_amz_key_v2)
-        iv = key.get_metadata(_x_amz_iv)
-        cek_alg = key.get_metadata(_x_amz_cek_alg)
+    def read(self, s3obj):
+        response = s3obj.get()
+        encrypted_data = response["Body"].read()
+        metadata = response["Metadata"]
+        wrapper_alg = metadata.get(_x_amz_wrap_alg)
+        material_desc = metadata.get(_x_amz_matdesc)
+        encrypted_data_key = metadata.get(_x_amz_key_v2)
+        iv = metadata.get(_x_amz_iv)
+        cek_alg = metadata.get(_x_amz_cek_alg)
 
-        key_name = "s3://%s/%s" % (key.bucket.name, key.name)
+        key_name = "s3://%s/%s" % (s3obj.bucket_name, s3obj.key)
 
         if encrypted_data_key is None:
             raise EncryptionError(
@@ -96,36 +101,36 @@ class S3ClientEncryptionHandler(object):
 
         return plaintext_data
 
-    def write(self, key, plaintext_data, wrapper_algorithm=_kms,
+    def write(self, s3obj, plaintext_data, wrapper_algorithm=_kms,
               encryption_algorithm=_AES_CBC_PKCS5Padding, key_id=None,
               headers=None, **kw):
-        key_name = "s3://%s/%s" % (key.bucket.name, key.name)
+        key_name = "s3://%s/%s" % (s3obj.bucket_name, s3obj.key)
         random = Crypto.Random.new()
 
         if key_id is None:
             key_id = self.key_id
 
         # Encryption metadata headers for the S3 object
-        s3_headers = {
-            _x_amz_meta_ + _x_amz_wrap_alg: wrapper_algorithm,
-            _x_amz_meta_ + _x_amz_cek_alg: encryption_algorithm,
+        metadata = {
+            _x_amz_wrap_alg: wrapper_algorithm,
+            _x_amz_cek_alg: encryption_algorithm,
         }
 
         # Create a cipher and pad the metadata as needed.
         if encryption_algorithm in (_AES_CBC_PKCS5Padding,):
             # Create an IV; needed to scramble the data.
             iv = random.read(16)
-            s3_headers[_x_amz_meta_ + _x_amz_iv] = b64encode(iv)
+            metadata[_x_amz_iv] = b64encode(iv)
 
             if wrapper_algorithm == _kms:
                 # Call KMS to generate a data key
                 encryption_context = {_kms_cmk_id: key_id}
                 try:
                     dk_result = self.kms.generate_data_key(
-                        key_id=self.key_id,
-                        encryption_context=encryption_context,
-                        key_spec=_AES_256)
-                except BotoServerError as e:
+                        KeyId=self.key_id,
+                        EncryptionContext=encryption_context,
+                        KeySpec=_AES_256)
+                except ClientError as e:
                     raise EncryptionError(
                         "%s: failed to generate data key from KMS: %s" %
                         (key_name, e))
@@ -136,11 +141,10 @@ class S3ClientEncryptionHandler(object):
                 # This is our data encryption key, itself encrypted with
                 # the customer master key.
                 ciphertext_blob = dk_result[_CiphertextBlob]
-                s3_headers[_x_amz_meta_ + _x_amz_key_v2] = b64encode(
-                    ciphertext_blob)
+                metadata[_x_amz_key_v2] = b64encode(ciphertext_blob)
 
                 # Record the key used to encrypt the data.
-                s3_headers[_x_amz_meta_ + _x_amz_matdesc] = json_dumps(
+                metadata[_x_amz_matdesc] = json_dumps(
                     {_kms_cmk_id: dk_result[_KeyId]})
             else:
                 raise EncryptionError(
@@ -148,7 +152,7 @@ class S3ClientEncryptionHandler(object):
                     (key_name, wrapper_algorithm))
 
             # Pad the data out to the AES blocksize.
-            pad = AES_BLOCKSIZE - len(plaintext_data) % AES_BLOCKSIZE
+            pad = AES_BLOCK_SIZE - len(plaintext_data) % AES_BLOCK_SIZE
             plaintext_data = plaintext_data + chr(pad) * pad
             cipher = AES.new(data_key, AES.MODE_CBC, iv)
         else:
@@ -156,11 +160,8 @@ class S3ClientEncryptionHandler(object):
                 "%s: Unknown encryption algorithm %s" %
                 (key_name, encryption_algorithm))
 
-        if headers is not None:
-            s3_headers.update(headers)
-
         encrypted_data = cipher.encrypt(plaintext_data)
-        key.set_contents_from_string(encrypted_data, headers=s3_headers, **kw)
+        s3obj.put(Body=encrypted_data, Metadata=metadata, **kw)
         return
 
     def decrypt_data_key_kms(self, key_name, encrypted_data_key, material_desc):
@@ -183,15 +184,45 @@ class S3ClientEncryptionHandler(object):
 
         try:
             decrypt_response = self.kms.decrypt(
-                encrypted_data_key, encryption_context=material_desc)
+                CiphertextBlob=encrypted_data_key,
+                EncryptionContext=material_desc)
             return decrypt_response['Plaintext']
-        except BotoServerError as e:
+        except ClientError as e:
             raise EncryptionError(
                 "%s: KMS decryption failure: %s" % (key_name, e))
 
+def get_object_to_file(s3, **kw):
+    """
+    Copy an S3 object to a file.
+    """
+    file = kw.pop("File")
+    response = s3.get_object(**kw)
+    body = response.pop("Body")
+    response["File"] = file
 
+    if isinstance(file, string_types):
+        ofd = open(file, "wb")
+        close_file = True
+    else:
+        ofd = file
+        close_file = False
 
+    try:
+        while True:
+            data = body.read(COPY_BLOCK_SIZE)
+            if len(data) == 0:
+                break
+            ofd.write(data)
+    except:
+        if close_file:
+            ofd.close()
+            unlink(file)
+        raise
+    else:
+        if close_file:
+            ofd.close()
 
+    return
 
 # Local variables:
 # mode: Python

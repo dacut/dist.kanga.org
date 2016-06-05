@@ -48,7 +48,7 @@ def setup_logging():
 
     stderr_handler = StreamHandler(stderr)
     stderr_handler.setFormatter(
-        Log8601Formatter("%(asctime)s %(levelname)s: %(message)s"))
+        Log8601Formatter("%(asctime)s %(name)s %(levelname)s %(filename)s:%(lineno)s: %(message)s"))
     handlers.append(stderr_handler)
     
     if exists("/dev/log"):
@@ -63,6 +63,8 @@ def setup_logging():
     log.addHandler(MultiHandler(handlers))
 
     getLogger("boto").setLevel(INFO)
+    getLogger("boto3").setLevel(INFO)
+    getLogger("botocore").setLevel(INFO)
     return
 
 setup_logging()

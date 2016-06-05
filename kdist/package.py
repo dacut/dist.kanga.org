@@ -1,18 +1,22 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-from boto.exception import S3ResponseError
-import boto.s3
-from boto.s3.connection import OrdinaryCallingFormat
+from botocore.exceptions import ClientError
+import boto3
 from csv import reader as csv_reader
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
-from sys import exit
+from sys import exit, version_info
 from tempfile import gettempdir
 from urllib2 import urlopen
 
-from kdist.distribution import Distribution
-from kdist.logging import log
-from kdist.platform import invoke
+from .distribution import Distribution
+from .logging import log
+from .platform import invoke
+from .s3 import get_object_to_file
+
+BLOCK_SIZE = 65536
+PUBLIC_READ = "public-read"
+REDUCED_REDUNDANCY = "REDUCED_REDUNDANCY"
 
 class Package(Distribution):
     """
@@ -51,13 +55,8 @@ class Package(Distribution):
         self.binary_s3_prefix = self.dist_prefix + "RPMS/x86_64/"
         self.source_s3_prefix = self.dist_prefix + "SRPMS/"
 
-        # Boto can't handle dots in bucket names (certificate validation
-        # issues with TLS), so we have to use the older calling format.
-        self.s3 = boto.s3.connect_to_region(
-            self.s3_region, calling_format=OrdinaryCallingFormat())
-
-        # Open the bucket for the distribution.
-        self.bucket = self.s3.get_bucket(self.bucket_name)
+        self.s3 = boto3.client("s3", region_name=self.s3_region)
+        self.bucket_name = self.bucket_name
 
         return
 
@@ -143,13 +142,26 @@ class Package(Distribution):
         # -${build_version}, but we want to iterate over the builds.
         rpm_prefix = (
             self.binary_s3_prefix + self.name + "-" + self.version + "-")
-        rpm_candidates = self.bucket.list(prefix=rpm_prefix)
+
+        list_kw = {"Bucket": self.bucket_name, "Prefix": rpm_prefix}
+        rpm_candidates = []
+
+        while True:
+            result = self.s3.list_objects_v2(**list_kw)
+
+            for s3obj in result["Contents"]:
+                rpm_candidates.append(s3obj["Key"])
+
+            if not result["IsTruncated"]:
+                break
+            
+            list_kw["ContinuationToken"] = result["NextContinuationToken"]
 
         log.debug("Looking for previous RPMs using prefix %s", rpm_prefix)
 
         for rpm_candidate in rpm_candidates:
-            assert rpm_candidate.name.startswith(rpm_prefix)
-            suffix = rpm_candidate.name[len(rpm_prefix):]
+            assert rpm_candidate.startswith(rpm_prefix)
+            suffix = rpm_candidate[len(rpm_prefix):]
             build = int(suffix.split(".", 1)[0])
 
             if self.last_build is None or self.last_build < build:
@@ -161,9 +173,14 @@ class Package(Distribution):
         if self.last_build is not None:
             if not exists(self.topdir + "/RPMS/x86_64"):
                 makedirs(self.topdir + "/RPMS/x86_64")
-            filename = self.topdir + "/RPMS/x86_64/" + last_key.name.rsplit("/", 1)[1]
-            log.debug("Retrieving %s", last_key.name)
-            last_key.get_contents_to_filename(filename)
+            filename = "%s/RPMS/x86_64/%s" % (
+                self.topdir, last_key.rsplit("/", 1)[1])
+            log.debug("Retrieving %s", last_key)
+
+            get_object_to_file(
+                self.s3, Bucket=self.bucket_name, Key=last_key,
+                File=filename)
+
             self.last_package = filename
             log.debug("Last build downloaded to %s", filename)
 
@@ -172,14 +189,16 @@ class Package(Distribution):
                 makedirs(self.topdir + "/SRPMS")
             srpm_name = "%s-%s-%d%s.src.rpm" % (
                 self.name, self.version, self.last_build, self.dist_suffix)
-            srpm_key = self.bucket.new_key(self.source_s3_prefix + srpm_name)
+            srpm_key = self.source_s3_prefix + srpm_name
             filename = self.topdir + "/SRPMS/" + srpm_name
 
-            log.debug("Attempting to retrieve SRPM %s", srpm_key.name)
+            log.debug("Attempting to retrieve SRPM %s", srpm_key)
             try:
-                srpm_key.get_contents_to_filename(filename)
+                get_object_to_file(
+                    self.s3, Bucket=self.bucket_name, Key=srpm_key,
+                    File=filename)
                 self.last_source = filename
-            except S3ResponseError as e:
+            except ClientError as e:
                 log.debug("SRPM not found: %s", e)
         else:
             log.debug("No previous builds found.")
@@ -209,19 +228,26 @@ class Package(Distribution):
         Upload the RPM and SRPM packages.
         """
         key_name = self.binary_s3_prefix + self.rpm_name
-        key = self.bucket.new_key(key_name)
         log.info("Uploading %s to %s", self.rpm_name, key_name)
-        key.set_contents_from_filename(
-            self.topdir + "/RPMS/x86_64/" + self.rpm_name,
-            reduced_redundancy=True,
-            policy='public-read')
+
+        with open(self.topdir + "/RPMS/x86_64/" + self.rpm_name, "r") as ifd:
+            self.s3.put_object(
+                ACL=PUBLIC_READ,
+                Body=ifd,
+                Bucket=self.bucket_name,
+                Key=key_name,
+                StorageClass=REDUCED_REDUNDANCY)
 
         key_name = self.source_s3_prefix + self.srpm_name
-        key = self.bucket.new_key(key_name)
         log.info("Uploading %s to %s", self.srpm_name, key_name)
-        key.set_contents_from_filename(
-            self.topdir + "/SRPMS/" + self.srpm_name, reduced_redundancy=True,
-            policy='public-read')
+
+        with open(self.topdir + "/SRPMS/" + self.srpm_name, "r") as ifd:
+            self.s3.put_object(
+                ACL=PUBLIC_READ,
+                Body=ifd,
+                Bucket=self.bucket_name,
+                Key=key_name,
+                StorageClass=REDUCED_REDUNDANCY)
 
         return
 
@@ -278,6 +304,11 @@ class Package(Distribution):
         if isdir("/usr/share/rpmlint"):
             import site
             site.addsitedir("/usr/share/rpmlint")
+        
+        pymajmin = "%d.%d" % (version_info.major, version_info.minor)
+        if isdir("/usr/lib64/python%s/dist-packages" % pymajmin):
+            import site
+            site.addsitedir("/usr/lib64/python%s/dist-packages" % pymajmin)
 
         from Pkg import Pkg
         from rpm import (
