@@ -23,7 +23,7 @@ class Package(Distribution):
     Build orchestration for a single package.
     """
 
-    def __init__(self, name, version):
+    def __init__(self, name, version, distributions="*"):
         """
         Package(name, version) -> Package
 
@@ -35,6 +35,12 @@ class Package(Distribution):
         self.last_build = None
         self.last_package = None
         self.last_source = None
+        self.current_build = None
+
+        if distributions == "*":
+            self.distributions = {"amzn", "fedora", "rhel", "debian", "ubuntu"}
+        else:
+            self.distributions = set(distributions.split(","))
 
         if self.linux_dist in ("amzn", "fedora", "rhel"):
             self.get_latest = self.get_latest_rpm
@@ -74,20 +80,20 @@ class Package(Distribution):
             self.topdir, self.name, self.linux_dist)
 
         # Create rpmbuild directories
-        for dirname in ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS",
-                        "SRPMS"):
-            path = "%s/%s" % (self.topdir, dirname)
+        for dir in ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS", "SRPMS"):
+            path = "%s/%s" % (self.topdir, dir)
             if not exists(path):
                 makedirs(path)
             
         if self.last_build is None:
-            self.build = 0
+            self.current_build = 0
         else:
-            self.build = self.last_build + 1
+            self.current_build = self.last_build + 1
 
         with open(spec_file_in, "r") as ifd:
             # Replace the kanga build version.
-            output = ifd.read().replace("%{kanga_build}", str(self.build))
+            output = ifd.read().replace(
+                "%{kanga_build}", str(self.current_build))
             with open(spec_file_out, "w") as ofd:
                 ofd.write(output)
 
@@ -121,7 +127,7 @@ class Package(Distribution):
         name = spec_data.get("Name").strip()
         version = spec_data.get("Version").strip()
         release = (spec_data.get("Release").strip()
-                   .replace("%{kanga_build}", str(self.build))
+                   .replace("%{kanga_build}", str(self.current_build))
                    .replace("%{dist}", self.dist_suffix))
 
         self.rpm_name = "%s-%s-%s.x86_64.rpm" % (name, version, release)
@@ -413,22 +419,29 @@ def localbuild():
     log.info("Invoking localbuild")
     try:
         for package in Package.get_packages():
+            if package.linux_dist not in package.distributions:
+                log.info("Skipping %s (not supported on %s)", package.name,
+                         package.linux_dist)
+                continue
+
             log.info("Building %s-%s", package.name, package.version)
+
             package.get_latest()
             if package.last_build is not None:
                 log.info("Previous build is %d", package.last_build)
             else:
                 log.info("No previous build")
+
             package.build()
 
             if package.has_diffs():
                 log.info("Build %d differs from previous build; uploading.",
-                         package.build)
+                         package.current_build)
                 package.upload()
                 log.info("Upload complete.")
             else:
                 log.info("Build %d is the same as previous build %d; skipping "
-                         "upload.", package.build, package.last_build)
+                         "upload.", package.current_build, package.last_build)
     except:
         log.error("localbuild failed", exc_info=True)
         return 1
