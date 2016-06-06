@@ -29,9 +29,7 @@ class MultiHandler(Handler):
 
 class Log8601Formatter(Formatter):
     def formatTime(self, record, datefmt=None):
-        return "%s.%03d" % (
-            strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created)),
-            int(record.msecs * 1000))
+        return strftime("%Y-%m-%dT%H:%M:%S", self.converter(record.created))
 
 def setup_logging():
     global log
