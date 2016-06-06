@@ -110,6 +110,11 @@ useradd --system --comment "Package builder" --home /home/builder \
 mkdir /home/builder
 chown builder:builder /home/builder
 
+# Allow builder to run sudo yum/sudo apt
+cat > /etc/sudoers.d/builder <<EOF
+builder ALL=(ALL) NOPASSWD:/usr/bin/yum,/usr/bin/apt-get,/usr/bin/apt
+EOF
+
 # Clone the Git repo for dist.kanga.org and install the kdist-localbuild
 # tool.
 git clone https://github.com/dacut/dist.kanga.org.git
