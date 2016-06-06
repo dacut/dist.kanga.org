@@ -97,7 +97,7 @@ if ! wget -O /tmp/awslogs-agent-setup.py \
 fi;
 
 chmod +x /tmp/awslogs-agent-setup.py
-if ! /tmp/awslogs-agent-setup.py --non-interactive --region=$REGION \
+if ! /tmp/awslogs-agent-setup.py --non-interactive --region=$region \
     --configfile=/etc/cloudwatch-logs.conf; then
     error "Failed to configure/start CloudWatch Logs daemon";
     exit 1;
@@ -123,7 +123,7 @@ cd dist.kanga.org
 
 # After rebooting, rebuild all packages and update the repository.
 cat >> /etc/rc.local <<EOF
-su -s /bin/sh - builder -c 'cd /home/builder && /usr/local/bin/kdist-localbuild && /usr/local/bin/kdist-repoupdate && /sbin/poweroff'
+su -s /bin/sh - builder -c 'cd /home/builder && /usr/local/bin/kdist-localbuild && /usr/local/bin/kdist-repoupdate'
 EOF
 
 # Let the system finish booting, then reboot.
