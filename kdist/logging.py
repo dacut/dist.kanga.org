@@ -43,12 +43,14 @@ def setup_logging():
     handlers = []
     buildlog_handler = FileHandler(getenv("HOME") + "/build.log")
     buildlog_handler.setFormatter(
-        Log8601Formatter(progname + " %(asctime)s %(levelname)s: %(message)s"))
+        Log8601Formatter("%(asctime)s " + progname + " %(levelname)s " +
+                         "%(filename)s:%(lineno)s: %(message)s"))
     handlers.append(buildlog_handler)
 
     stderr_handler = StreamHandler(stderr)
     stderr_handler.setFormatter(
-        Log8601Formatter("%(asctime)s %(name)s %(levelname)s %(filename)s:%(lineno)s: %(message)s"))
+        Log8601Formatter("%(asctime)s %(name)s %(levelname)s " +
+                         "%(filename)s:%(lineno)s: %(message)s"))
     handlers.append(stderr_handler)
     
     if exists("/dev/log"):
