@@ -1,4 +1,5 @@
 #!/bin/bash -ex
+
 if [[ -r /etc/os-release ]]; then
     . /etc/os-release
 elif [[ -r /etc/redhat-release ]]; then
@@ -24,26 +25,8 @@ metadata=http://169.254.169.254/latest/meta-data
 availability_zone=$(curl -s $metadata/placement/availability-zone)
 region=$(echo $availability_zone | sed -e 's/[a-z]$//')
 
-# Install CloudWatch Logs agent
-case "$ID" in
-    amzn )
-        yum -y install awslogs;;
-    
-    * )
-        echo "Unsupported OS ID: $ID" 1>&2;
-        exit 1;
-esac
-
 # Configure the CloudWatch Logs agent
-test -d /var/awslogs/etc || mkdir -p /var/awslogs/etc
-echo > /var/awslogs/etc/aws.conf <<.EOF
-[plugins]
-cwlogs = cwlogs
-[default]
-region = $region
-.EOF
-
-echo > /var/awslogs/etc/awslogs.conf <<.EOF
+cat > /etc/cloudwatch-logs.conf <<EOF
 [general]
 state_file = /var/awslogs/state/agent-state
 
@@ -59,26 +42,66 @@ log_group_name = cloud-init-output
 log_stream_name = {instance_id}
 datetime_format = %b %d %H:%M:%S
 
-
 [build-log]
 file = /home/builder/build.log
 log_group_name = build-log
 log_stream_name = {instance_id}
-datetime_format = %Y-%m-%dT%H:%M:%SZ
+datetime_format = %Y-%m-%dT%H:%M:%S.%s
+EOF
 
+if [[ -e /var/log/messages ]]; then
+    cat >> /etc/cloudwatch-logs.cfg <<EOF
 [messages]
 file = /var/log/messages
-log_group_name = messages
+log_group_name = syslog
 log_stream_name = {instance_id}
 datetime_format = %b %d %H:%M:%S
+EOF
+fi;
 
+if [[ -e /var/log/syslog ]]; then
+    cat >> /etc/cloudwatch-logs.cfg <<EOF
+[syslog]
+file = /var/log/syslog
+log_group_name = syslog
+log_stream_name = {instance_id}
+datetime_format = %b %d %H:%M:%S
+EOF
+fi;
+
+if [[ -e /var/log/boot.log ]]; then
+    cat >> /etc/cloudwatch-logs.cfg <<EOF
 [boot]
 file = /var/log/boot.log
-log_group_name = boot
+log_group_name = syslog
 log_stream_name = {instance_id}
 datetime_format = %b %d %H:%M:%S
+EOF
+fi;
 
-.EOF
+if [[ -e /var/log/kern.log ]]; then
+    cat >> /etc/cloudwatch-logs.cfg <<EOF
+[syslog]
+file = /var/log/kern.log
+log_group_name = syslog
+log_stream_name = {instance_id}
+datetime_format = %b %d %H:%M:%S
+EOF
+fi;
+
+# Install CloudWatch Logs agent
+if ! wget -O /tmp/awslogs-agent-setup.py \
+    'https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py'; then
+    error "Failed to download CloudWatch Logs daemon";
+    exit 1;
+fi;
+
+chmod +x /tmp/awslogs-agent-setup.py
+if ! /tmp/awslogs-agent-setup.py --non-interactive --region=$REGION \
+    --configfile=/etc/cloudwatch-logs.conf; then
+    error "Failed to configure/start CloudWatch Logs daemon";
+    exit 1;
+fi;
 
 # Add a "builder" system user/group for building the packages
 groupadd --system builder
@@ -94,7 +117,7 @@ cd dist.kanga.org
 ./setup.py install
 
 # After rebooting, rebuild all packages and update the repository.
-cat >> /etc/rc.local <<EOF    
+cat >> /etc/rc.local <<EOF
 su -s /bin/sh - builder -c 'cd /home/builder && kdist-localbuild && kdist-repoupdate'
 EOF
 
