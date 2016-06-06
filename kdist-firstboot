@@ -118,7 +118,7 @@ cd dist.kanga.org
 
 # After rebooting, rebuild all packages and update the repository.
 cat >> /etc/rc.local <<EOF
-su -s /bin/sh - builder -c 'cd /home/builder && kdist-localbuild && kdist-repoupdate'
+su -s /bin/sh - builder -c 'cd /home/builder && /usr/local/bin/kdist-localbuild && /usr/local/bin/kdist-repoupdate'
 EOF
 
 # Let the system finish booting, then reboot.
