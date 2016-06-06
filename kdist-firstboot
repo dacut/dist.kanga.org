@@ -12,8 +12,8 @@ fi;
 case "$ID" in
     amzn | rhel | fedora | centos )
         yum -y update
-        yum -y install binutils gcc git rpm-build rpm-devel rpmdevtools \
-            rpmlint rpm-python27
+        yum -y install binutils createrepo gcc git rpm-build rpm-devel \
+            rpmdevtools rpmlint rpm-python27
         ;;
 
     * )
