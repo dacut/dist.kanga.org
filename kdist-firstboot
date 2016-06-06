@@ -20,6 +20,66 @@ case "$ID" in
         exit 1;
 esac
 
+metadata=http://169.254.169.254/latest/meta-data
+availability_zone=$(curl -s $metadata/placement/availability-zone)
+region=$(echo $availability_zone | sed -e 's/[a-z]$//')
+
+# Install CloudWatch Logs agent
+case "$ID" in
+    amzn )
+        yum -y install awslogs;;
+    
+    * )
+        echo "Unsupported OS ID: $ID" 1>&2;
+        exit 1;
+esac
+
+# Configure the CloudWatch Logs agent
+test -d /var/awslogs/etc || mkdir -p /var/awslogs/etc
+echo > /var/awslogs/etc/aws.conf <<.EOF
+[plugins]
+cwlogs = cwlogs
+[default]
+region = $region
+.EOF
+
+echo > /var/awslogs/etc/awslogs.conf <<.EOF
+[general]
+state_file = /var/awslogs/state/agent-state
+
+[cloud-init]
+file = /var/log/cloud-init.log
+log_group_name = cloud-init
+log_stream_name = {instance_id}
+datetime_format = %b %d %H:%M:%S
+
+[cloud-init-output]
+file = /var/log/cloud-init-output.log
+log_group_name = cloud-init-output
+log_stream_name = {instance_id}
+datetime_format = %b %d %H:%M:%S
+
+
+[build-log]
+file = /home/builder/build.log
+log_group_name = build-log
+log_stream_name = {instance_id}
+datetime_format = %Y-%m-%dT%H:%M:%SZ
+
+[messages]
+file = /var/log/messages
+log_group_name = messages
+log_stream_name = {instance_id}
+datetime_format = %b %d %H:%M:%S
+
+[boot]
+file = /var/log/boot.log
+log_group_name = boot
+log_stream_name = {instance_id}
+datetime_format = %b %d %H:%M:%S
+
+.EOF
+
 # Add a "builder" system user/group for building the packages
 groupadd --system builder
 useradd --system --comment "Package builder" --home /home/builder \
