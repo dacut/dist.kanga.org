@@ -1,17 +1,25 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
 import logging
+from os import listdir
 from setuptools import setup
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("nose").setLevel(logging.DEBUG)
+
+kdist_files = (
+    ["kdist/" + f for f in listdir("kdist")
+     if f.endswith(".csv")] +
+    ["kdist/SPECS/" + f for f in listdir("kdist/SPECS")
+     if f.endswith(".in")]
+)
 
 setup(
     name="dist.kanga.org",
     version="1.0",
     packages=['kdist'],
     package_data={
-        'kdist': ['*.csv', '*.sh'],
+        'kdist': kdist_files,
     },
     entry_points={
         "console_scripts": [

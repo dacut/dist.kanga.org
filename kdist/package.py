@@ -67,9 +67,11 @@ class Package(Distribution):
         Create RPM and SRPM packages for RedHat and variants.
         """
         spec_data = {}
-        spec_file_in = "SPECS/%s.spec.%s.in" % (self.name, self.linux_dist)
-        spec_file_out = "%s/SPECS/%s.spec.%s" % (self.topdir, self.name,
-                                                 self.linux_dist)
+        this_dir = dirname(__file__)
+        spec_file_in = "%s/SPECS/%s.spec.%s.in" % (
+            this_dir, self.name, self.linux_dist)
+        spec_file_out = "%s/SPECS/%s.spec.%s" % (
+            self.topdir, self.name, self.linux_dist)
 
         # Create rpmbuild directories
         for dirname in ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS",

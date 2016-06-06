@@ -1,2 +1,2 @@
-name	version
-nbd	3.11
+name	version	os
+nbd	3.11	*
