@@ -2,11 +2,12 @@
 from __future__ import absolute_import, division, print_function
 from botocore.exceptions import ClientError
 import boto3
+from getopt import getopt, GetoptError
 from json import load as json_load
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
 from re import compile as re_compile
-from sys import exit, version_info
+from sys import argv, exit, stderr, stdout, version_info
 from tempfile import gettempdir
 from urllib2 import urlopen
 
@@ -40,9 +41,9 @@ class Package(Distribution):
         self.current_build = None
 
         if distributions == "*":
-            self.distributions = {"amzn", "fedora", "rhel", "debian", "ubuntu"}
+            self.distributions = ["amzn", "fedora", "rhel", "debian", "ubuntu"]
         else:
-            self.distributions = set(distributions.split(","))
+            self.distributions = distributions
 
         for key, value in kw.iteritems():
             setattr(self, key, value)
@@ -143,7 +144,13 @@ class Package(Distribution):
                 continue
             
             key, value = line.split(":", 1)
-            spec_vars[key.strip()] = value.strip()
+            key = key.strip()
+            value = value.strip()
+
+            if key in spec_vars:
+                spec_vars[key] += " " + value
+            else:
+                spec_vars[key] = value
 
         # If Source is present, rename it to Source0.
         if "Source" in spec_vars:
@@ -447,9 +454,35 @@ class Package(Distribution):
         return False
 
 def localbuild():
+    do_list = False
+    
+    try:
+        opts, args = getopt(argv[1:], "hl", ["help", "list"])
+        for opt, arg in opts:
+            if opt in ("-h", "--help",):
+                localbuild_usage(stdout)
+                return 0
+            elif opt in ("-l", "--list",):
+                do_list = True
+
+        build_packages = args
+    except GetoptError as e:
+        print(str(e), file=stderr)
+        localbuild_usage()
+        return 1
+
     log.info("Invoking localbuild")
     try:
         for package in Package.get_packages():
+            if len(build_packages) > 0 and package.name not in build_packages:
+                continue
+
+            if do_list:
+                if package.linux_dist in package.distributions:
+                    print("%s-%s" % (package.name, package.version))
+                    
+                continue
+
             if package.linux_dist not in package.distributions:
                 log.info("Skipping %s (not supported on %s)", package.name,
                          package.linux_dist)
@@ -479,6 +512,24 @@ def localbuild():
     else:
         log.info("localbuild succeeded")
         return 0
+
+def localbuild_usage(fd=stderr):
+    fd.write("""\
+Usage: kdist-localbuild [options] <build_packages...>
+Build packages on this platform and upload any changes to the distribution
+server.
+
+Options:
+    -h | --help
+        Show this usage information.
+
+    -l | --list
+        Print a list of packages available for building.
+
+If build_packages is not specified, all packages are built.
+""")
+    fd.flush()
+    return
 
 if __name__ == "__main__":
     exit(localbuild())

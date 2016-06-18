@@ -2,11 +2,16 @@
     {
         "name": "nbd",
         "version": "3.11",
-        "distributions": "*"
+        "distributions": ["amzn"]
     },
     {
         "name": "libqb",
         "version": "0.18.0",
-        "distributions": "*"
+        "distributions": ["amzn"]
+    },
+    {
+        "name": "corosync",
+        "version": "1.4.8",
+        "distributions": ["amzn"]
     }
 ]
