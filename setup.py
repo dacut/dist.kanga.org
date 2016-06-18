@@ -10,7 +10,7 @@ setup(
     name="dist.kanga.org",
     version="1.0",
     packages=['kdist'],
-    package_data={'kdist': ["*.csv", "*.sh", "SPECS/*.in"]},
+    package_data={'kdist': ["*.csv", "*.json", "*.sh", "SPECS/*.in"]},
     entry_points={
         "console_scripts": [
             "kdist-genindexes=kdist.index:genindexes",

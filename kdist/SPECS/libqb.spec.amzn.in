@@ -1,0 +1,64 @@
+%bcond_without check
+%bcond_without syslog_tests
+
+Name:           libqb
+Version:        @version@
+Release:        @kanga_build@%{dist}
+Summary:        An IPC library for high performance servers
+
+Group:          System Environment/Libraries
+License:        LGPLv2+
+URL:            https://github.com/ClusterLabs/libqb
+Source0:        https://dist.kanga.org/packages/libqb-@version@.tar.gz
+
+BuildRequires:  autoconf automake libtool doxygen procps check-devel
+
+%description
+libqb provides high-performance, reusable features for client-server
+architecture, such as logging, tracing, inter-process communication (IPC),
+and polling.
+
+%prep
+%setup -q -n %{name}-%{version}
+
+%build
+./autogen.sh
+%configure --disable-static \
+           %{?with_syslog_tests:--enable-syslog-tests}
+make %{?_smp_mflags}
+
+%if 0%{?with_check}
+%check
+VERBOSE=1 make check
+%endif
+
+%install
+make install DESTDIR=$RPM_BUILD_ROOT
+find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
+rm -rf $RPM_BUILD_ROOT/%{_datadir}/doc/libqb
+
+%post -p /sbin/ldconfig
+
+%postun -p /sbin/ldconfig
+
+%files
+%doc COPYING
+%{_sbindir}/qb-blackbox
+%{_libdir}/libqb.so.*
+
+%package        devel
+Summary:        Development files for %{name}
+Group:          Development/Libraries
+Requires:       %{name} = %{version}-%{release} pkgconfig
+
+%description    devel
+The %{name}-devel package contains libraries and header files for
+developing applications that use %{name}.
+
+%files devel
+%doc COPYING README.markdown
+%{_includedir}/qb/
+%{_libdir}/libqb.so
+%{_libdir}/pkgconfig/libqb.pc
+%{_mandir}/man3/qb*3*
+%{_mandir}/man8/qb-blackbox.8.gz

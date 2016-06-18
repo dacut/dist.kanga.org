@@ -2,9 +2,10 @@
 from __future__ import absolute_import, division, print_function
 from botocore.exceptions import ClientError
 import boto3
-from csv import reader as csv_reader
+from json import load as json_load
 from os import getenv, makedirs
 from os.path import basename, dirname, exists, isdir
+from re import compile as re_compile
 from sys import exit, version_info
 from tempfile import gettempdir
 from urllib2 import urlopen
@@ -17,13 +18,14 @@ from .s3 import get_object_to_file
 BLOCK_SIZE = 65536
 PUBLIC_READ = "public-read"
 REDUCED_REDUNDANCY = "REDUCED_REDUNDANCY"
+VAR_REGEX = re_compile(r"(?<!\\)@([a-zA-Z_][a-zA-Z0-9_]*)@")
 
 class Package(Distribution):
     """
     Build orchestration for a single package.
     """
 
-    def __init__(self, name, version, distributions="*"):
+    def __init__(self, name, version, distributions="*", **kw):
         """
         Package(name, version) -> Package
 
@@ -41,6 +43,9 @@ class Package(Distribution):
             self.distributions = {"amzn", "fedora", "rhel", "debian", "ubuntu"}
         else:
             self.distributions = set(distributions.split(","))
+
+        for key, value in kw.iteritems():
+            setattr(self, key, value)
 
         if self.linux_dist in ("amzn", "fedora", "rhel"):
             self.get_latest = self.get_latest_rpm
@@ -66,13 +71,20 @@ class Package(Distribution):
 
         return
 
+    @property
+    def kanga_build(self):
+        """
+        Allow SPEC files to refer to @kanga_build@.
+        """
+        return self.current_build
+
     def build_rpm(self):
         """
         pkg.build_rpm()
 
         Create RPM and SRPM packages for RedHat and variants.
         """
-        spec_data = {}
+        spec_vars = {}
         this_dir = dirname(__file__)
         spec_file_in = "%s/SPECS/%s.spec.%s.in" % (
             this_dir, self.name, self.linux_dist)
@@ -90,43 +102,71 @@ class Package(Distribution):
         else:
             self.current_build = self.last_build + 1
 
+        log.info("Replacing metavariables from SPEC file %s",
+                 spec_file_in)
         with open(spec_file_in, "r") as ifd:
-            # Replace the kanga build version.
-            output = ifd.read().replace(
-                "%{kanga_build}", str(self.current_build))
-            with open(spec_file_out, "w") as ofd:
-                ofd.write(output)
+            # Replace metavariables.
+            spec_data = ifd.read()
+            start = 0
 
-            # Parse the spec file for build variables.
-            ifd.seek(0, 0)
-            for line in ifd:
-                if line.startswith("%"):
+            while start < len(spec_data):
+                m = VAR_REGEX.search(spec_data, start)
+                if not m:
                     break
-                line = line.strip()
-                if not line:
-                    continue
-                key, value = line.split(":", 1)
-                spec_data[key] = value
+                
+                variable = m.group(1)
+                replacement = str(getattr(self, variable, ""))
+                
+                log.debug("Replacing %s with %r", variable, replacement)
+                
+                spec_data = (
+                    spec_data[:m.start(0)] + replacement +
+                    spec_data[m.end(0):])
+                start = m.start(0) + len(replacement)
+            
+            with open(spec_file_out, "w") as ofd:
+                ofd.write(spec_data)
+
+        log.info("SPEC file written to %s", spec_file_out)
+
+        # Parse the spec file for build variables.
+        for line in spec_data.split("\n"):
+            line = line.strip()
+
+            # Stop looking for variables at the start of a section.
+            if line in {"%description", "%prep", "%build", "%check",
+                        "%install", "%post", "%postun", "%files", "%package"}:
+                break
+
+            # Ignore empty lines and lines starting with directives.
+            if not line or line.startswith("%") or ":" not in line:
+                continue
+            
+            key, value = line.split(":", 1)
+            spec_vars[key.strip()] = value.strip()
 
         # If Source is present, rename it to Source0.
-        if "Source" in spec_data:
-            if "Source0" in spec_data:
+        if "Source" in spec_vars:
+            if "Source0" in spec_vars:
                 raise ValueError(
                     "SPEC file cannot declare both Source and Source0")
-            spec_data["Source0"] = spec_data["Source"]
+            spec_vars["Source0"] = spec_vars["Source"]
 
         # Download all source files.
         source_id = 0
-        while "Source%d" % source_id in spec_data:
-            source = spec_data["Source%d" % source_id]
+        while "Source%d" % source_id in spec_vars:
+            source = spec_vars["Source%d" % source_id]
             dest = self.topdir + "/SOURCES/" + basename(source)
+            log.info("Downloading Source%d from %s", source_id, source)
             self.download(source, dest)
             source_id += 1
 
+        log.debug("spec_vars: %r", spec_vars)
+
         # Set the RPM and SRPM names
-        name = spec_data.get("Name").strip()
-        version = spec_data.get("Version").strip()
-        release = (spec_data.get("Release").strip()
+        name = spec_vars["Name"].strip()
+        version = spec_vars["Version"].strip()
+        release = (spec_vars["Release"].strip()
                    .replace("%{kanga_build}", str(self.current_build))
                    .replace("%{dist}", self.dist_suffix))
 
@@ -134,7 +174,7 @@ class Package(Distribution):
         self.srpm_name = "%s-%s-%s.src.rpm" % (name, version, release)
 
         # Install any necessary package prerequisites
-        pkg_list = spec_data.get("BuildRequires", "").strip().split()
+        pkg_list = spec_vars.get("BuildRequires", "").strip().split()
         invoke("sudo", "yum", "-y", "install", *pkg_list)
         invoke("rpmbuild", "--define", "_topdir " + self.topdir, "-ba",
                spec_file_out)
@@ -157,7 +197,7 @@ class Package(Distribution):
         while True:
             result = self.s3.list_objects_v2(**list_kw)
 
-            for s3obj in result["Contents"]:
+            for s3obj in result.get("Contents", []):
                 rpm_candidates.append(s3obj["Key"])
 
             if not result["IsTruncated"]:
@@ -281,19 +321,10 @@ class Package(Distribution):
         Package.get_packages()
 
         Returns a Package object for all known packages (as specified in
-        the packages.csv file).
+        the packages.json file).
         """
-        results = []
-
-        with open(dirname(__file__) + "/packages.csv", "r") as fd:
-            reader = csv_reader(fd, dialect='excel-tab')
-            header = reader.next()
-
-            for row in reader:
-                kw = dict(zip(header, row))
-                results.append(cls(**kw))
-
-        return results
+        with open(dirname(__file__) + "/packages.json", "r") as fd:
+            return [cls(**pkgdata) for pkgdata in json_load(fd)]
 
     # pylint: disable=E0401
     @classmethod

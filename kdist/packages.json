@@ -1,0 +1,12 @@
+[
+    {
+        "name": "nbd",
+        "version": "3.11",
+        "distributions": "*"
+    },
+    {
+        "name": "libqb",
+        "version": "0.18.0",
+        "distributions": "*"
+    }
+]
