@@ -69,14 +69,14 @@ def invoke(*cmd, **kw):
     if not suppress_output:
         out = out.strip()
         if out:
-            log.info("stdout:")
+            log.debug("stdout:")
             for line in out.split("\n"):
-                log.info("%s", line)
+                log.debug("%s", line)
         err = err.strip()
         if err:
-            log.warning("stderr:")
+            log.debug("stderr:")
             for line in err.split("\n"):
-                log.warning("%s", line)
+                log.debug("%s", line)
 
     if return_all:
         return (proc.returncode, out, err)
