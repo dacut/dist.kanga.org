@@ -1,0 +1,250 @@
+%global gname haclient
+%global uname hacluster
+%global pcmk_docdir %{_docdir}/%{name}
+
+# Compatibility macros for distros (fedora) that don't provide Python macros by default
+# Do this instead of trying to conditionally %include %{_rpmconfigdir}/macros.python
+%{!?py_ver:     %{expand: %%global py_ver      %%(echo `python -c "import sys; print sys.version[:3]"`)}}
+%{!?py_prefix:  %{expand: %%global py_prefix   %%(echo `python -c "import sys; print sys.prefix"`)}}
+%{!?py_libdir:  %{expand: %%global py_libdir   %%{expand:%%%%{py_prefix}/%%%%{_lib}/python%%%%{py_ver}}}}
+%{!?py_sitedir: %{expand: %%global py_sitedir  %%{expand:%%%%{py_libdir}/site-packages}}}
+
+# Compatibility macro wrappers for legacy RPM versions that do not
+# support conditional builds
+%{!?bcond_without: %{expand: %%global bcond_without() %%{expand:%%%%{!?_without_%%{1}:%%%%global with_%%{1} 1}}}}
+%{!?bcond_with:    %{expand: %%global bcond_with()    %%{expand:%%%%{?_with_%%{1}:%%%%global with_%%{1} 1}}}}
+%{!?with:          %{expand: %%global with()          %%{expand:%%%%{?with_%%{1}:1}%%%%{!?with_%%{1}:0}}}}
+%{!?without:       %{expand: %%global without()       %%{expand:%%%%{?with_%%{1}:0}%%%%{!?with_%%{1}:1}}}}
+
+# Conditionals
+# Invoke "rpmbuild --without <feature>" or "rpmbuild --with <feature>"
+# to disable or enable specific features
+%bcond_without ais
+%bcond_without heartbeat
+# ESMTP is not available in RHEL, only in EPEL. Allow people to build
+# the RPM without ESMTP in case they choose not to use EPEL packages
+%bcond_without esmtp
+%bcond_without snmp
+
+Name:		pacemaker
+Summary:	Scalable High-Availability cluster resource manager
+Version:	@version@
+Release:	@kanga_build@%{dist}
+License:	GPLv2+ and LGPLv2+
+Url:		http://www.clusterlabs.org
+Group:		System Environment/Daemons
+Source0:	https://dist.kanga.org/packages/pacemaker-@version@.tar.gz
+BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+AutoReqProv:	on
+Requires(pre):	cluster-glue
+Requires:	resource-agents
+Requires:	python >= 2.4
+Conflicts:      heartbeat < 2.99
+Requires:	pacemaker-libs = %{version}-%{release}
+Requires:       perl(:MODULE_COMPAT_%(eval "`%{__perl} -V:version`"; echo $version))
+BuildRequires:  help2man libtool-ltdl-devel
+
+# Required for core functionality
+BuildRequires:  automake autoconf libtool pkgconfig
+BuildRequires:	glib2-devel cluster-glue-libs-devel libxml2-devel libxslt-devel
+BuildRequires:	pkgconfig python-devel gcc-c++ bzip2-devel pam-devel libtool-ltdl-devel
+BuildRequires:  gnutls-devel
+
+
+# Enables optional functionality
+BuildRequires:	ncurses-devel openssl-devel libselinux-devel
+
+%if %{with esmtp}
+BuildRequires:	libesmtp-devel
+%endif
+
+%if %{with snmp}
+BuildRequires:	net-snmp-devel
+%endif
+
+%if %{with ais}
+BuildRequires:	corosynclib-devel
+%endif
+
+%if %{with heartbeat}
+BuildRequires:	heartbeat-devel heartbeat-libs
+%endif
+
+%description
+Pacemaker is an advanced, scalable High-Availability cluster resource
+manager for Linux-HA (Heartbeat) and/or OpenAIS.
+
+It supports "n-node" clusters with significant capabilities for
+managing resources and dependencies.
+
+It will run scripts at initialization, when machines go up or down,
+when related resources fail and can be configured to periodically check
+resource health.
+
+Available rpmbuild rebuild options:
+  --without : heartbeat ais esmtp snmp
+
+%package -n pacemaker-libs
+License:	GPLv2+ and LGPLv2+
+Summary:	Libraries used by the Pacemaker cluster resource manager and its clients
+Group:		System Environment/Daemons
+
+%description -n pacemaker-libs
+Pacemaker is an advanced, scalable High-Availability cluster resource
+manager for Linux-HA (Heartbeat) and/or OpenAIS.
+
+It supports "n-node" clusters with significant capabilities for
+managing resources and dependencies.
+
+It will run scripts at initialization, when machines go up or down,
+when related resources fail and can be configured to periodically check
+resource health.
+
+%package -n pacemaker-libs-devel
+License:	GPLv2+ and LGPLv2+
+Summary:	Pacemaker development package
+Group:		Development/Libraries
+Requires:	pacemaker-libs = %{version}-%{release}
+Requires:	cluster-glue-libs-devel libtool-ltdl-devel
+%if %{with ais}
+Requires:	corosynclib-devel
+%endif
+%if %{with heartbeat}
+Requires:	heartbeat-devel
+%endif
+
+%description -n pacemaker-libs-devel
+Headers and shared libraries for developing tools for Pacemaker.
+
+Pacemaker is an advanced, scalable High-Availability cluster resource
+manager for Linux-HA (Heartbeat) and/or OpenAIS.
+
+It supports "n-node" clusters with significant capabilities for
+managing resources and dependencies.
+
+It will run scripts at initialization, when machines go up or down,
+when related resources fail and can be configured to periodically check
+resource health.
+
+%prep
+%setup -q
+
+%build
+./autogen.sh
+
+# RHEL <= 5 does not support --docdir
+docdir=%{pcmk_docdir} %{configure} \
+	%{!?with_heartbeat: --without-heartbeat}	\
+	%{!?with_ais:       --without-ais}		\
+	%{!?with_esmtp:     --without-esmtp}		\
+	%{!?with_snmp:      --without-snmp}		\
+	--localstatedir=%{_var} \
+	--enable-fatal-warnings=no
+make %{_smp_mflags} docdir=%{pcmk_docdir}
+
+%install
+rm -rf %{buildroot}
+make DESTDIR=%{buildroot} docdir=%{pcmk_docdir} install
+
+# Scripts that need should be executable
+chmod a+x %{buildroot}/%{_libdir}/heartbeat/hb2openais-helper.py
+chmod a+x %{buildroot}/%{_datadir}/pacemaker/tests/cts/CTSlab.py
+chmod a+x %{buildroot}/%{_datadir}/pacemaker/tests/cts/extracttests.py
+
+# These are not actually scripts
+find %{buildroot} -name '*.xml' -type f -print0 | xargs -0 chmod a-x
+find %{buildroot} -name '*.xsl' -type f -print0 | xargs -0 chmod a-x
+find %{buildroot} -name '*.rng' -type f -print0 | xargs -0 chmod a-x
+find %{buildroot} -name '*.dtd' -type f -print0 | xargs -0 chmod a-x
+
+# Dont package static libs
+find %{buildroot} -name '*.a' -type f -print0 | xargs -0 rm -f
+find %{buildroot} -name '*.la' -type f -print0 | xargs -0 rm -f
+
+# Do not package these either
+rm %{buildroot}/%{_libdir}/heartbeat/crm_primitive.py
+%if %{with ais}
+rm %{buildroot}/%{_libdir}/service_crm.so
+%endif
+
+%clean
+rm -rf %{buildroot}
+
+%post -n pacemaker-libs -p /sbin/ldconfig
+
+%postun -n pacemaker-libs -p /sbin/ldconfig
+
+%files
+###########################################################
+%defattr(-,root,root)
+
+%exclude %{_datadir}/pacemaker/tests
+%{_datadir}/pacemaker
+%{_datadir}/snmp/mibs/PCMK-MIB.txt
+%{_libdir}/heartbeat/*
+%{_sbindir}/cibadmin
+%{_sbindir}/crm_attribute
+%{_sbindir}/crm_diff
+%{_sbindir}/crm_failcount
+%{_sbindir}/crm_master
+%{_sbindir}/crm_mon
+%{_sbindir}/crm
+%{_sbindir}/crm_resource
+%{_sbindir}/crm_standby
+%{_sbindir}/crm_verify
+%{_sbindir}/crmadmin
+%{_sbindir}/iso8601
+%{_sbindir}/attrd_updater
+%{_sbindir}/ptest
+%{_sbindir}/crm_shadow
+%{_sbindir}/cibpipe
+%{_sbindir}/crm_node
+%{py_sitedir}
+
+%if %{with heartbeat}
+%{_sbindir}/crm_uuid
+%else
+%exclude %{_sbindir}/crm_uuid
+%endif
+
+# Packaged elsewhere
+%exclude %{pcmk_docdir}/AUTHORS
+%exclude %{pcmk_docdir}/COPYING
+%exclude %{pcmk_docdir}/COPYING.LIB
+
+%doc %{pcmk_docdir}
+%doc %{_mandir}/man8/*.8*
+%doc COPYING
+%doc AUTHORS
+
+%dir %attr (750, %{uname}, %{gname}) %{_var}/lib/heartbeat/crm
+%dir %attr (750, %{uname}, %{gname}) %{_var}/lib/pengine
+%dir %attr (750, %{uname}, %{gname}) %{_var}/run/crm
+%dir /usr/lib/ocf
+%dir /usr/lib/ocf/resource.d
+/usr/lib/ocf/resource.d/pacemaker
+%if %{with ais}
+%{_libexecdir}/lcrso/pacemaker.lcrso
+%endif
+
+%files -n pacemaker-libs
+%defattr(-,root,root)
+%{_libdir}/libcib.so.*
+%{_libdir}/libcrmcommon.so.*
+%{_libdir}/libcrmcluster.so.*
+%{_libdir}/libpe_status.so.*
+%{_libdir}/libpe_rules.so.*
+%{_libdir}/libpengine.so.*
+%{_libdir}/libtransitioner.so.*
+%{_libdir}/libstonithd.so.*
+%doc COPYING.LIB
+%doc AUTHORS
+
+%files -n pacemaker-libs-devel
+%defattr(-,root,root)
+%{_includedir}/pacemaker
+%{_includedir}/heartbeat/fencing
+%{_libdir}/*.so
+%{_datadir}/pacemaker/tests
+%doc COPYING.LIB
+%doc AUTHORS
