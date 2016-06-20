@@ -13,11 +13,7 @@ setup(
     package_data={'kdist': ["*.csv", "*.json", "*.sh", "SPECS/*.in"]},
     entry_points={
         "console_scripts": [
-            "kdist-genindexes=kdist.index:genindexes",
-            "kdist-localbuild=kdist.package:localbuild",
-            "kdist-repoupdate=kdist.repository:repoupdate",
-            "kdist-remotebuild=kdist.remote:remotebuild",
-            "kdist-server=kdist.server:run_server",
+            "kdist-rpmdiff=kdist.rpm:main",
         ]
     },
     install_requires=["boto3>=1.0", "Flask>=0.10", "pycrypto>=2.6", "six>=1.10"],

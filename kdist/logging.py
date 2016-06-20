@@ -66,7 +66,7 @@ def setup_logging():
     getLogger("boto3").setLevel(INFO)
     getLogger("botocore").setLevel(INFO)
     return
-
+qqwerwqe
 setup_logging()
 
 # Local variables:
