@@ -16,7 +16,8 @@ setup(
             "kdist-rpmdiff=kdist.rpm:main",
         ]
     },
-    install_requires=["boto3>=1.0", "Flask>=0.10", "pycrypto>=2.6", "six>=1.10"],
+    install_requires=["boto3>=1.0", "docker-py>=1.6.0", "Flask>=0.10",
+                      "pycrypto>=2.6", "six>=1.10"],
     setup_requires=["nose>=1.0"],
 
     # PyPI information

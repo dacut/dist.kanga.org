@@ -2,26 +2,26 @@
 from __future__ import absolute_import, division, print_function
 from botocore.exceptions import ClientError
 import boto3
-from getopt import getopt, GetoptError
-from json import load as json_load
-from os import getenv, makedirs
-from os.path import basename, dirname, exists, isdir
-from re import compile as re_compile
-from sys import argv, exit, stderr, stdout, version_info
-from tempfile import gettempdir
-from urllib2 import urlopen
+import getopt
+import json
+import os
+import os.path
+import re
+import sys
+import tempfile
+import urllib2
 
-from .distribution import Distribution
-from .logging import log
-from .platform import invoke
-from .s3 import get_object_to_file
+from kdist.logging import log
+import kdist.platform
+import kdist.s3
+
 
 BLOCK_SIZE = 65536
 PUBLIC_READ = "public-read"
 REDUCED_REDUNDANCY = "REDUCED_REDUNDANCY"
-VAR_REGEX = re_compile(r"(?<!\\)@([a-zA-Z_][a-zA-Z0-9_]*)@")
+VAR_REGEX = re.compile(r"(?<!\\)@([a-zA-Z_][a-zA-Z0-9_]*)@")
 
-class Package(Distribution):
+class Package(kdist.distribution.Distribution):
     """
     Build orchestration for a single package.
     """
@@ -54,7 +54,7 @@ class Package(Distribution):
             self.has_diffs = self.has_diffs_rpm
             self.upload = self.upload_rpm
             self.srpm_name = self.rpm_name = None
-            self.topdir = getenv("HOME") + "/rpmbuild"
+            self.topdir = os.getenv("HOME") + "/rpmbuild"
         # elif self.linux_dist in ("debian", "ubuntu"):
         #     self.get_latest = self.get_latest_deb
         #     self.build = self.build_deb
@@ -86,7 +86,7 @@ class Package(Distribution):
         Create RPM and SRPM packages for RedHat and variants.
         """
         spec_vars = {}
-        this_dir = dirname(__file__)
+        this_dir = os.path.dirname(__file__)
         spec_file_in = "%s/SPECS/%s.spec.%s.in" % (
             this_dir, self.name, self.linux_dist)
         spec_file_out = "%s/SPECS/%s.spec.%s" % (
@@ -95,8 +95,8 @@ class Package(Distribution):
         # Create rpmbuild directories
         for dir in ("BUILD", "BUILDROOT", "RPMS", "SOURCES", "SPECS", "SRPMS"):
             path = "%s/%s" % (self.topdir, dir)
-            if not exists(path):
-                makedirs(path)
+            if not os.path.exists(path):
+                os.makedirs(path)
             
         if self.last_build is None:
             self.current_build = 0
@@ -163,7 +163,7 @@ class Package(Distribution):
         source_id = 0
         while "Source%d" % source_id in spec_vars:
             source = spec_vars["Source%d" % source_id]
-            dest = self.topdir + "/SOURCES/" + basename(source)
+            dest = self.topdir + "/SOURCES/" + os.path.basename(source)
             log.info("Downloading Source%d from %s", source_id, source)
             self.download(source, dest)
             source_id += 1
@@ -182,9 +182,9 @@ class Package(Distribution):
 
         # Install any necessary package prerequisites
         pkg_list = spec_vars.get("BuildRequires", "").strip().split()
-        invoke("sudo", "yum", "-y", "install", *pkg_list)
-        invoke("rpmbuild", "--define", "_topdir " + self.topdir, "-ba",
-               spec_file_out)
+        kdist.platform.invoke("sudo", "yum", "-y", "install", *pkg_list)
+        kdist.platform.invoke("rpmbuild", "--define", "_topdir " + self.topdir,
+                              "-ba", spec_file_out)
         return
 
     def get_latest_rpm(self):
@@ -226,13 +226,13 @@ class Package(Distribution):
             log.debug("Candidate found: %s", rpm_candidate)
 
         if self.last_build is not None:
-            if not exists(self.topdir + "/RPMS/x86_64"):
-                makedirs(self.topdir + "/RPMS/x86_64")
+            if not os.path.exists(self.topdir + "/RPMS/x86_64"):
+                os.makedirs(self.topdir + "/RPMS/x86_64")
             filename = "%s/RPMS/x86_64/%s" % (
                 self.topdir, last_key.rsplit("/", 1)[1])
             log.debug("Retrieving %s", last_key)
 
-            get_object_to_file(
+            kdist.s3.get_object_to_file(
                 self.s3, Bucket=self.bucket_name, Key=last_key,
                 File=filename)
 
@@ -240,8 +240,8 @@ class Package(Distribution):
             log.debug("Last build downloaded to %s", filename)
 
             # Attempt to download the SRPM too
-            if not exists(self.topdir + "/SRPMS"):
-                makedirs(self.topdir + "/SRPMS")
+            if not os.path.exists(self.topdir + "/SRPMS"):
+                os.makedirs(self.topdir + "/SRPMS")
             srpm_name = "%s-%s-%d%s.src.rpm" % (
                 self.name, self.version, self.last_build, self.dist_suffix)
             srpm_key = self.source_s3_prefix + srpm_name
@@ -312,11 +312,11 @@ class Package(Distribution):
 
         Download the source URL to the destination file.
         """
-        dest_dir = dirname(dest)
-        if not exists(dest_dir):
-            makedirs(dest_dir)
+        dest_dir = os.path.dirname(dest)
+        if not os.path.exists(dest_dir):
+            os.makedirs(dest_dir)
 
-        conn = urlopen(source)
+        conn = urllib2.urlopen(source)
         with open(dest, "wb") as ofd:
             ofd.write(conn.read())
 
@@ -330,8 +330,8 @@ class Package(Distribution):
         Returns a Package object for all known packages (as specified in
         the packages.json file).
         """
-        with open(dirname(__file__) + "/packages.json", "r") as fd:
-            return [cls(**pkgdata) for pkgdata in json_load(fd)]
+        with open(os.path.dirname(__file__) + "/packages.json", "r") as fd:
+            return [cls(**pkgdata) for pkgdata in json.load(fd)]
 
     # pylint: disable=E0401
     @classmethod
@@ -344,15 +344,15 @@ class Package(Distribution):
         # Note: We can't use rpmdiff -- it diffs the Provides header
         # unconditionally, so it always indicates the RPMs differ.
 
-        rpm_basename_1 = basename(rpm_filename_1)
-        rpm_basename_2 = basename(rpm_filename_2)
+        rpm_basename_1 = os.path.basename(rpm_filename_1)
+        rpm_basename_2 = os.path.basename(rpm_filename_2)
 
-        if isdir("/usr/share/rpmlint"):
+        if os.path.isdir("/usr/share/rpmlint"):
             import site
             site.addsitedir("/usr/share/rpmlint")
         
-        pymajmin = "%d.%d" % (version_info.major, version_info.minor)
-        if isdir("/usr/lib64/python%s/dist-packages" % pymajmin):
+        pymajmin = "%d.%d" % (sys.version_info.major, sys.version_info.minor)
+        if os.path.isdir("/usr/lib64/python%s/dist-packages" % pymajmin):
             import site
             site.addsitedir("/usr/lib64/python%s/dist-packages" % pymajmin)
 
@@ -364,7 +364,7 @@ class Package(Distribution):
 
         log.debug("diff_rpm: %s vs %s", rpm_basename_1, rpm_basename_2)
 
-        tmpdir = gettempdir()
+        tmpdir = tempfile.gettempdir()
         rpm1 = Pkg(rpm_filename_1, tmpdir).header
         rpm2 = Pkg(rpm_filename_2, tmpdir).header
 
@@ -457,17 +457,17 @@ def localbuild():
     do_list = False
     
     try:
-        opts, args = getopt(argv[1:], "hl", ["help", "list"])
+        opts, args = getopt.getopt(sys.argv[1:], "hl", ["help", "list"])
         for opt, arg in opts:
             if opt in ("-h", "--help",):
-                localbuild_usage(stdout)
+                localbuild_usage(sys.stdout)
                 return 0
             elif opt in ("-l", "--list",):
                 do_list = True
 
         build_packages = args
-    except GetoptError as e:
-        print(str(e), file=stderr)
+    except getopt.GetoptError as e:
+        print(str(e), file=sys.stderr)
         localbuild_usage()
         return 1
 
@@ -513,7 +513,7 @@ def localbuild():
         log.info("localbuild succeeded")
         return 0
 
-def localbuild_usage(fd=stderr):
+def localbuild_usage(fd=sys.stderr):
     fd.write("""\
 Usage: kdist-localbuild [options] <build_packages...>
 Build packages on this platform and upload any changes to the distribution
@@ -532,4 +532,4 @@ If build_packages is not specified, all packages are built.
     return
 
 if __name__ == "__main__":
-    exit(localbuild())
+    sys.exit(localbuild())
