@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
-import getopt
-import logging
-import os.path
-import sys
-import tempfile
+from getopt import getopt, GetoptError
+from logging import basicConfig, DEBUG, INFO, getLogger
+from os.path import basename, isdir
+from sys import argv, exit, stderr, stdout, version_info
+from tempfile import gettempdir
 
-log = logging.getLogger("kdist.rpm")
+from kdist.rpm import diff_rpm
+
+log = getLogger("kdist.rpm")
 
 def diff_rpm(rpm_filename_1, rpm_filename_2, ignore=()):
     """
@@ -20,18 +22,18 @@ def diff_rpm(rpm_filename_1, rpm_filename_2, ignore=()):
     # Note: We can't use rpmdiff -- it diffs the Provides header
     # unconditionally, so it always indicates the RPMs differ.
 
-    rpm_basename_1 = os.path.basename(rpm_filename_1)
-    rpm_basename_2 = os.path.basename(rpm_filename_2)
+    rpm_basename_1 = basename(rpm_filename_1)
+    rpm_basename_2 = basename(rpm_filename_2)
 
     # This requires rpmlint libraries.
-    if os.path.isdir("/usr/share/rpmlint"):
+    if isdir("/usr/share/rpmlint"):
         import site
         site.addsitedir("/usr/share/rpmlint")
 
     # On Amazon Linux, the RPM libraries are installed in /usr/share/rpmlint
     # and /usr/lib64/pythonX.y/dist-packages.
-    pymajmin = "%d.%d" % (sys.version_info.major, sys.version_info.minor)
-    if os.path.isdir("/usr/lib64/python%s/dist-packages" % pymajmin):
+    pymajmin = "%d.%d" % (version_info.major, version_info.minor)
+    if isdir("/usr/lib64/python%s/dist-packages" % pymajmin):
         import site
         site.addsitedir("/usr/lib64/python%s/dist-packages" % pymajmin)
 
@@ -43,7 +45,7 @@ def diff_rpm(rpm_filename_1, rpm_filename_2, ignore=()):
 
     log.debug("diff_rpm: %s vs %s", rpm_basename_1, rpm_basename_2)
 
-    tmpdir = tempfile.gettempdir()
+    tmpdir = gettempdir()
     rpm1 = Pkg(rpm_filename_1, tmpdir).header
     rpm2 = Pkg(rpm_filename_2, tmpdir).header
 
@@ -143,36 +145,35 @@ def diff_rpm(rpm_filename_1, rpm_filename_2, ignore=()):
 
 def main():
     ignore = set()
-    logging.basicConfig(level=logging.INFO)
+    basicConfig(level=INFO)
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "dhi:",
-                                   ["debug", "help", "ignore="])
-    except getopt.GetoptError as e:
-        print(str(e), file=sys.stderr)
+        opts, args = getopt(argv[1:], "dhi:", ["debug", "help", "ignore="])
+    except GetoptError as e:
+        print(str(e), file=stderr)
         usage()
         return 2
         
     for opt, val in opts:
         if opt in ("-d", "--debug",):
-            logging.getLogger().setLevel(logging.DEBUG)
+            getLogger().setLevel(DEBUG)
         if opt in ("-h", "--help",):
-            usage(sys.stdout)
+            usage(stdout)
             return 2
         if opt in ("-i", "--ignore",):
             for item in opt.split(","):
                 ignore.add(item)
 
     if len(args) == 0:
-        print("Missing filenames", file=sys.stderr)
+        print("Missing filenames", file=stderr)
         usage()
         return 2
     elif len(args) == 1:
-        print("Missing second RPM filename", file=sys.stderr)
+        print("Missing second RPM filename", file=stderr)
         usage()
         return 2
     elif len(args) > 2:
-        print("Unknown argument %r" % args[2], file=sys.stderr)
+        print("Unknown argument %r" % args[2], file=stderr)
         usage()
         return 2
 
@@ -183,7 +184,7 @@ def main():
     else:
         return 0
 
-def usage(fd=sys.stderr):
+def usage(fd=stderr):
     fd.write("""\
 Usage: %(argv0)s [options] <file1> <file2>
 
@@ -208,10 +209,10 @@ If the RPMs are the same, the return value is 0.
 If the RPMs differ, the return value is 1.
 If there was a usage error (file not found, invalid argument) or the --help
 option was specified, the return value is 2.
-""" % {"argv0": sys.argv[0]})
+""" % {"argv0": argv[0]})
     fd.flush()
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit(main())
 
     

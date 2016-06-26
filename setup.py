@@ -13,6 +13,7 @@ setup(
     package_data={'kdist': ["*.csv", "*.json", "*.sh", "SPECS/*.in"]},
     entry_points={
         "console_scripts": [
+            "kdist-localbuild=kdist.package:localbuild",
             "kdist-rpmdiff=kdist.rpm:main",
         ]
     },
