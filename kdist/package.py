@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.5
 from __future__ import absolute_import, division, print_function
 from botocore.exceptions import ClientError
 import boto3
@@ -300,7 +300,7 @@ RUN ["yum", "install", "-y", "rpm-build", "rpm-devel", "rpmlint", "yum-utils"]
                      self.topdir + "/RPMS/x86_64/" + self.rpm_name) or
             diff_rpm(self.last_source,
                      self.topdir + "/SRPMS/" + self.srpm_name,
-                     ignore=["*.spec"])
+                     ignore=["*.spec"]))
 
     def upload_rpm(self):
         """
